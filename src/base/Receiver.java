@@ -4,6 +4,9 @@ import java.io.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Timer;
 
 public class Receiver {
     private static byte[] msg2byte(Mensagem msg) {
@@ -26,9 +29,21 @@ public class Receiver {
         return null;
     }
 
+    private static void sendMessage(DatagramSocket datagramSocket, InetAddress inetAddress, int port, List<Mensagem> mensagemBuffer) throws IOException {
+        Mensagem mensagem = mensagemBuffer.get(mensagemBuffer.size()-1);
+        mensagem.setAck(Mensagem.Ack.RECONHECIDO);
+
+        byte[] sendDataBuffer = msg2byte(mensagem);
+        DatagramPacket sendDatagramPacket = new DatagramPacket(sendDataBuffer, sendDataBuffer.length, inetAddress, port);
+        datagramSocket.send(sendDatagramPacket);
+    }
+
     public static void main(String[] args) {
+        List<Mensagem> mensagemBuffer = new ArrayList<>();
+        int idCounter = -1;
         try {
             DatagramSocket datagramSocket = new DatagramSocket(9876);
+
 
             while (true) {
                 byte[] recDataBuffer = new byte[1024];
@@ -38,18 +53,19 @@ public class Receiver {
 
                 System.out.println("Packet received!");
 
-                InetAddress inetAddress = recDatagramPacket.getAddress();
-                int port = recDatagramPacket.getPort();
                 Mensagem mensagem = byte2msg(recDatagramPacket.getData());
 
-                System.out.println(mensagem.getMsg());
+                if (mensagem.getIdentificador() == idCounter + 1) {
+                    // Mensagem na ordem
+                    mensagemBuffer.add(mensagem);
 
-                Mensagem mensagemToSend = new Mensagem(0, mensagem.getMsg());
+                    System.out.println("Mensagem id " + mensagem.getIdentificador() + " recebida na ordem, entregando para a camada de aplicação");
+                }
 
-                byte[] sendDataBuffer = msg2byte(mensagemToSend);
-                DatagramPacket sendDatagramPacket = new DatagramPacket(sendDataBuffer, sendDataBuffer.length, inetAddress, port);
+                InetAddress inetAddress = recDatagramPacket.getAddress();
+                int port = recDatagramPacket.getPort();
+                sendMessage(datagramSocket, inetAddress, port, mensagemBuffer);
 
-                datagramSocket.send(sendDatagramPacket);
             }
         } catch (IOException e) {
             e.printStackTrace();

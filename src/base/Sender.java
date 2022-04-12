@@ -2,11 +2,12 @@ package base;
 
 import java.io.*;
 import java.net.*;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Scanner;
+import java.util.*;
 
 public class Sender {
+    static List<Mensagem> mensagemBuffer;
+    static Timer timer;
+
     enum Mode {
         lenta(1),
         perda(2),
@@ -53,16 +54,53 @@ public class Sender {
         }
     }
 
-    private static void sendMessage(DatagramSocket datagramSocket, InetAddress inetAddress, List<Mensagem> mensagemBuffer, Mode mode) throws IOException {
+    static class Timeout extends TimerTask {
+        private int id;
+        private DatagramSocket datagramSocket;
+        private InetAddress inetAddress;
+
+        public Timeout(int id, DatagramSocket datagramSocket, InetAddress inetAddress) {
+            this.id = id;
+            this.datagramSocket = datagramSocket;
+            this.inetAddress = inetAddress;
+        }
+
+        // TimerTask.run() method will be used to perform the action of the task
+
+        public void run() {
+            System.out.println("Timeout reached");
+            Mensagem mensagem = mensagemBuffer.get(id);
+            if (mensagem.getAck() == Mensagem.Ack.RECONHECIDO)
+                this.cancel();
+            else {
+                try {
+                    sendMessage(timer, datagramSocket, inetAddress, mensagemBuffer, null);
+                    //this.run();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    private static void sendMessage(Timer timer, DatagramSocket datagramSocket, InetAddress inetAddress, List<Mensagem> mensagemBuffer, Mode mode) throws IOException {
         Mensagem mensagem = mensagemBuffer.get(mensagemBuffer.size()-1);
         byte[] sendData = msg2byte(mensagem);
 
         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, inetAddress, 9876);
         datagramSocket.send(sendPacket);
+        if (timer != null) {
+            TimerTask task = new Timeout(mensagem.getIdentificador(), datagramSocket, inetAddress);
+
+            timer.schedule(task, 5000);
+        }
+
 
         mensagem.setAck(Mensagem.Ack.ENVIADO_NAO_RECONHECIDO);
         if (mode != null)
             System.out.println("Mensagem \""+ mensagem.getMsg() +"\" enviada como "+ mode +" com o id " + mensagem.getIdentificador());
+        else
+            System.out.println("Mensagem \""+ mensagem.getMsg() +"\" reenviada com o id " + mensagem.getIdentificador());
 
         // Verifica se tem pacote fora de ordem a ser enviado
         if (mensagemBuffer.size() > 1) {
@@ -76,6 +114,10 @@ public class Sender {
 
                 mensagem.setAck(Mensagem.Ack.ENVIADO_NAO_RECONHECIDO);
                 System.out.println("Mensagem \""+ mensagem.getMsg() +"\" enviada como "+ Mode.fora_de_ordem.toString().replaceAll("_", " ") +" com o id " + mensagem.getIdentificador());
+
+                TimerTask task2 = new Timeout(mensagem.getIdentificador(), datagramSocket, inetAddress);
+
+                timer.schedule(task2, 5000);
             }
         }
     }
@@ -84,8 +126,9 @@ public class Sender {
         DatagramSocket datagramSocket = new DatagramSocket();
         InetAddress inetAddress = InetAddress.getByName("127.0.0.1");
         Scanner userInput = new Scanner(System.in);
-        List<Mensagem> mensagemBuffer = new ArrayList<>();
+        mensagemBuffer = new ArrayList<>();
         int idCounter = -1;
+        timer = new Timer();
 
         while (true) {
             System.out.println("Digite a mensagem a ser enviada, ou se desejar sair digite \\exit:");
@@ -96,7 +139,6 @@ public class Sender {
             idCounter++;
             Mensagem mensagem = new Mensagem(idCounter, input);
 
-            //byte[] sendData = input.getBytes();
             System.out.println("Escolha a forma de envio:\n" +
                     "1 - lenta\n" +
                     "2 - perda\n" +
@@ -109,7 +151,7 @@ public class Sender {
                     mensagem.setAck(Mensagem.Ack.AUTORIZADO_NAO_ENVIADO);
                     mensagemBuffer.add(mensagem);
                     delay();
-                    sendMessage(datagramSocket, inetAddress, mensagemBuffer, Mode.lenta);
+                    sendMessage(timer, datagramSocket, inetAddress, mensagemBuffer, Mode.lenta);
                     //System.out.println("Mensagem \""+ mensagem.getMsg() +"\" enviada como lenta com o id " + mensagem.getIdentificador());
 
                     // TODO
@@ -126,8 +168,8 @@ public class Sender {
                 case duplicada:
                     mensagem.setAck(Mensagem.Ack.AUTORIZADO_NAO_ENVIADO);
                     mensagemBuffer.add(mensagem);
-                    sendMessage(datagramSocket, inetAddress, mensagemBuffer, null);
-                    sendMessage(datagramSocket, inetAddress, mensagemBuffer, Mode.duplicada);
+                    sendMessage(timer, datagramSocket, inetAddress, mensagemBuffer, null);
+                    sendMessage(timer, datagramSocket, inetAddress, mensagemBuffer, Mode.duplicada);
                     //System.out.println("Mensagem \""+ mensagem.getMsg() +"\" enviada como duplicada com o id " + mensagem.getIdentificador());
 
                     // TODO
@@ -136,7 +178,7 @@ public class Sender {
                 case normal:
                     mensagem.setAck(Mensagem.Ack.AUTORIZADO_NAO_ENVIADO);
                     mensagemBuffer.add(mensagem);
-                    sendMessage(datagramSocket, inetAddress, mensagemBuffer, Mode.normal);
+                    sendMessage(timer, datagramSocket, inetAddress, mensagemBuffer, Mode.normal);
                     //System.out.println("Mensagem \""+ mensagem.getMsg() +"\" enviada como normal com o id " + mensagem.getIdentificador());
 
                     // TODO
