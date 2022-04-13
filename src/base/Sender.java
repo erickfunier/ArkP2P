@@ -15,7 +15,7 @@ public class Sender {
         duplicada(4),
         normal(5);
 
-        private int mode;
+        private final int mode;
 
         Mode(int mode) {
             this.mode = mode;
