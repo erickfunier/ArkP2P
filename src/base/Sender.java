@@ -7,28 +7,22 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class Sender {
-    static List<Mensagem> mensagemBuffer = new ArrayList<>();
+    static final List<Mensagem> mensagemBuffer = new ArrayList<>();
     static Timer timer;
     static int lastReceived = 0;
-    static List<Integer> outOfOrder = new ArrayList<>();
+    static final List<Integer> outOfOrder = new ArrayList<>();
 
     enum Mode {
-        lenta(1),
-        perda(2),
-        fora_de_ordem(3),
-        duplicada(4),
-        normal(5),
-        reenvio(6); // Usado apenas para o reenvio de fora de ordem
+        lenta(),
+        perda(),
+        fora_de_ordem(),
+        duplicada(),
+        normal(),
+        reenvio(); // Usado apenas para o reenvio de fora de ordem
 
-        private final int mode;
-
-        Mode(int mode) {
-            this.mode = mode;
+        Mode() {
         }
 
-        public int getMode() {
-            return mode;
-        }
     }
 
     private static byte[] msg2byte(Mensagem msg) {
@@ -60,9 +54,9 @@ public class Sender {
     }
 
     static class Timeout extends TimerTask {
-        private int id;
-        private DatagramSocket datagramSocket;
-        private InetAddress inetAddress;
+        private final int id;
+        private final DatagramSocket datagramSocket;
+        private final InetAddress inetAddress;
 
         public Timeout(int id, DatagramSocket datagramSocket, InetAddress inetAddress) {
             this.id = id;
@@ -86,10 +80,8 @@ public class Sender {
                             sendMessage(timer, datagramSocket, inetAddress, i, null);
                             receivePacket(datagramSocket);
                         }
-                    } else {
-                        sendMessage(timer, datagramSocket, inetAddress, mensagemBuffer.size()-1, null);
                     }
-                    //this.run();
+
                 } catch (IOException e) {
                     e.printStackTrace();
                 }

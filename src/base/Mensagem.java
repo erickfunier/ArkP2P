@@ -3,9 +3,9 @@ package base;
 import java.io.Serializable;
 
 public class Mensagem implements Serializable {
-    private int identificador;
+    private final int identificador;
     private Ack ack;
-    private String msg;
+    private final String msg;
 
     enum Ack {
         NAO_AUTORIZADO,
@@ -37,7 +37,4 @@ public class Mensagem implements Serializable {
         return msg;
     }
 
-    public void setMsg(String msg) {
-        this.msg = msg;
-    }
 }

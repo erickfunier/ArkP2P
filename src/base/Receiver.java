@@ -5,9 +5,7 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Timer;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -68,29 +66,23 @@ public class Receiver {
 
                     System.out.println("Mensagem id " + mensagem.getIdentificador() + " recebida na ordem, entregando para a camada de aplicação");
                     idCounter++;
-                    InetAddress inetAddress = recDatagramPacket.getAddress();
-                    int port = recDatagramPacket.getPort();
-                    sendMessage(datagramSocket, inetAddress, port, mensagemBuffer);
 
                 } else if (mensagem.getIdentificador() == idCounter || mensagem.getIdentificador() < idCounter) {
                     System.out.println("Mensagem id " + mensagem.getIdentificador() + " recebida de forma duplicada");
-                    InetAddress inetAddress = recDatagramPacket.getAddress();
-                    int port = recDatagramPacket.getPort();
-                    sendMessage(datagramSocket, inetAddress, port, mensagemBuffer);
 
                 } else {
                     int lastReceived;
                     if (mensagemBuffer.size() > 0)
                         lastReceived = mensagemBuffer.get(mensagemBuffer.size()-1).getIdentificador();
                     else
-                        lastReceived = 0;
-                    List<Integer> range = IntStream.range(lastReceived, mensagem.getIdentificador()).boxed().collect(Collectors.toList());
+                        lastReceived = -1;
+                    List<Integer> range = IntStream.range(lastReceived+1, mensagem.getIdentificador()).boxed().collect(Collectors.toList());
                     System.out.println("Mensagem id " + mensagem.getIdentificador() + " recebida fora de ordem, ainda não recebidos os identificadores " + range);
-                    InetAddress inetAddress = recDatagramPacket.getAddress();
-                    int port = recDatagramPacket.getPort();
-                    sendMessage(datagramSocket, inetAddress, port, mensagemBuffer);
-                }
 
+                }
+                InetAddress inetAddress = recDatagramPacket.getAddress();
+                int port = recDatagramPacket.getPort();
+                sendMessage(datagramSocket, inetAddress, port, mensagemBuffer);
 
 
             }
