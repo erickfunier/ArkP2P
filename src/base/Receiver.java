@@ -53,10 +53,7 @@ public class Receiver {
             while (true) {
                 byte[] recDataBuffer = new byte[1024];
                 DatagramPacket recDatagramPacket = new DatagramPacket(recDataBuffer, recDataBuffer.length);
-                //System.out.println("Waiting packet...");
                 datagramSocket.receive(recDatagramPacket);
-
-                //System.out.println("Packet received!");
 
                 Mensagem mensagem = byte2msg(recDatagramPacket.getData());
 
@@ -83,8 +80,6 @@ public class Receiver {
                 InetAddress inetAddress = recDatagramPacket.getAddress();
                 int port = recDatagramPacket.getPort();
                 sendMessage(datagramSocket, inetAddress, port, mensagemBuffer);
-
-
             }
         } catch (IOException e) {
             e.printStackTrace();

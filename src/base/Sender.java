@@ -8,21 +8,17 @@ import java.util.stream.IntStream;
 
 public class Sender {
     static final List<Mensagem> mensagemBuffer = new ArrayList<>();
-    static Timer timer;
+    static Timer timer = new Timer();
     static int lastReceived = 0;
     static final List<Integer> outOfOrder = new ArrayList<>();
 
     enum Mode {
-        lenta(),
-        perda(),
-        fora_de_ordem(),
-        duplicada(),
-        normal(),
-        reenvio(); // Usado apenas para o reenvio de fora de ordem
-
-        Mode() {
-        }
-
+        lenta,
+        perda,
+        fora_de_ordem,
+        duplicada,
+        normal,
+        reenvio // Usado apenas para o reenvio de fora de ordem
     }
 
     private static byte[] msg2byte(Mensagem msg) {
@@ -63,8 +59,6 @@ public class Sender {
             this.datagramSocket = datagramSocket;
             this.inetAddress = inetAddress;
         }
-
-        // TimerTask.run() method will be used to perform the action of the task
 
         public void run() {
             Mensagem mensagem = mensagemBuffer.get(id);
@@ -143,7 +137,6 @@ public class Sender {
         if (mensagemReceived.getIdentificador() > lastReceived)
             lastReceived = mensagemReceived.getIdentificador();
 
-
     }
 
     public static void main(String[] args) throws IOException {
@@ -151,7 +144,6 @@ public class Sender {
         InetAddress inetAddress = InetAddress.getByName("127.0.0.1");
         Scanner userInput = new Scanner(System.in);
         int idCounter = -1;
-        timer = new Timer();
 
         while (true) {
             System.out.println("Digite a mensagem a ser enviada, ou se desejar sair digite \\exit:");
@@ -175,10 +167,7 @@ public class Sender {
                     mensagemBuffer.add(mensagem);
                     delay();
                     sendMessage(timer, datagramSocket, inetAddress, mensagemBuffer.size()-1, Mode.lenta);
-                    //System.out.println("Mensagem \""+ mensagem.getMsg() +"\" enviada como lenta com o id " + mensagem.getIdentificador());
 
-                    // TODO
-                    // Start timer and handle the receive message
                     break;
                 case perda:
                     mensagem.setAck(Mensagem.Ack.DESCARTADO);
@@ -194,22 +183,15 @@ public class Sender {
                     mensagemBuffer.add(mensagem);
                     sendMessage(timer, datagramSocket, inetAddress, mensagemBuffer.size()-1, null);
                     sendMessage(timer, datagramSocket, inetAddress, mensagemBuffer.size()-1, Mode.duplicada);
-                    //System.out.println("Mensagem \""+ mensagem.getMsg() +"\" enviada como duplicada com o id " + mensagem.getIdentificador());
 
-                    // TODO
-                    // Start timer and handle the receive message
                     break;
                 case normal:
                     mensagem.setAck(Mensagem.Ack.AUTORIZADO_NAO_ENVIADO);
                     mensagemBuffer.add(mensagem);
                     sendMessage(timer, datagramSocket, inetAddress, mensagemBuffer.size()-1, Mode.normal);
-                    //System.out.println("Mensagem \""+ mensagem.getMsg() +"\" enviada como normal com o id " + mensagem.getIdentificador());
 
-                    // TODO
-                    // Start timer and handle the receive message
                     break;
             }
-
 
             if (mensagem.getAck() != Mensagem.Ack.NAO_AUTORIZADO && mensagem.getAck() != Mensagem.Ack.DESCARTADO) // Se nao eh fora de ordem e nao eh perda
                 receivePacket(datagramSocket);
