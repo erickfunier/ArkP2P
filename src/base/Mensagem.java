@@ -2,11 +2,16 @@ package base;
 
 import java.io.Serializable;
 
+// Classe utilizada como objeto no envio e recebimento de mensagens
 public class Mensagem implements Serializable {
+    // header
     private final int identificador;
     private Ack ack;
+
+    // data
     private final String msg;
 
+    // utilizado como valores do parametro ACK
     enum Ack {
         NAO_AUTORIZADO,
         DESCARTADO,
@@ -17,7 +22,7 @@ public class Mensagem implements Serializable {
 
     public Mensagem(int identificador, String msg) {
         this.identificador = identificador;
-        this.ack = Ack.NAO_AUTORIZADO;
+        this.ack = Ack.NAO_AUTORIZADO; // Inicializa o pacote como NAO AUTORIZADO
         this.msg = msg;
     }
 
@@ -36,5 +41,4 @@ public class Mensagem implements Serializable {
     public String getMsg() {
         return msg;
     }
-
 }

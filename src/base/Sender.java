@@ -7,11 +7,12 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class Sender {
-    static final List<Mensagem> mensagemBuffer = new ArrayList<>();
-    static Timer timer = new Timer();
-    static int lastReceived = 0;
-    static final List<Integer> outOfOrder = new ArrayList<>();
+    static final List<Mensagem> mensagemBuffer = new ArrayList<>(); // buffer de pacotes
+    static final List<Integer> outOfOrder = new ArrayList<>(); // buffer de pacotes para o envio fora de ordem
+    static Timer timer = new Timer(); // Timer utilizado para o time out
+    static int lastReceivedId = 0; // usado para armazenar o ultimo id recebido pelo receiver, eh atualizado sempre que um pacote eh recebido
 
+    // Modos de envio das mensagens
     enum Mode {
         lenta,
         perda,
@@ -21,34 +22,7 @@ public class Sender {
         reenvio // Usado apenas para o reenvio de fora de ordem
     }
 
-    private static byte[] msg2byte(Mensagem msg) {
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        try (ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream)) {
-            objectOutputStream.writeObject(msg);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return byteArrayOutputStream.toByteArray();
-    }
-
-    private static Mensagem byte2msg(byte[] data) {
-        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(data);
-        try (ObjectInputStream objectInputStream = new ObjectInputStream((byteArrayInputStream))) {
-            return (Mensagem) objectInputStream.readObject();
-        } catch (IOException | ClassNotFoundException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
-    private static void delay() {
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-    }
-
+    // classe usada para manusear o Timeout dos pacotes enviados
     static class Timeout extends TimerTask {
         private final int id;
         private final DatagramSocket datagramSocket;
@@ -66,7 +40,7 @@ public class Sender {
             if (mensagem.getAck() == Mensagem.Ack.RECONHECIDO)
                 this.cancel();
             else {
-                List<Integer> range = IntStream.range(lastReceived+1, mensagemBuffer.size()).boxed().collect(Collectors.toList());
+                List<Integer> range = IntStream.range(lastReceivedId +1, mensagemBuffer.size()).boxed().collect(Collectors.toList());
                 try {
                     if (range.size() > 0) {
                         System.out.println("Timeout! Reenviar " + range);
@@ -83,12 +57,51 @@ public class Sender {
         }
     }
 
+    // Usado para simular o modo lentidao
+    private static void delay() {
+        try {
+            Thread.sleep(3000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // usado para serializar um pacote(Mensagem) para um array de bytes
+    private static byte[] msg2byte(Mensagem msg) {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        try (ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream)) {
+            objectOutputStream.writeObject(msg);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return byteArrayOutputStream.toByteArray();
+    }
+
+    // usado apra deserializar um array de byte[] em um pacote(Mensagem)
+    private static Mensagem byte2msg(byte[] data) {
+        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(data);
+        try (ObjectInputStream objectInputStream = new ObjectInputStream((byteArrayInputStream))) {
+            return (Mensagem) objectInputStream.readObject();
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    // usado para o envio dos pacotes(mensagem) atravez do Socket
+    // @timer: instância do timer para agendar um timeout
+    // @datagramSocket: socket inicializado para o envio do pacote
+    // @inetAddress: endereço ip para o envio do pacote
+    // @index: index do pacote(Mensagem) no buffer para ser enviado
+    // @mode: modo de envio, utilizado apenas para realizar a impressao da mensagem com o modo de envio
     private static void sendMessage(Timer timer, DatagramSocket datagramSocket, InetAddress inetAddress, int index, Mode mode) throws IOException {
         Mensagem mensagem = mensagemBuffer.get(index);
         byte[] sendData = msg2byte(mensagem);
 
         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, inetAddress, 9876);
         datagramSocket.send(sendPacket);
+
+        // 
         if (timer != null) {
             TimerTask task = new Timeout(mensagem.getIdentificador(), datagramSocket, inetAddress);
 
@@ -134,8 +147,8 @@ public class Sender {
             mensagemBuffer.get(mensagemReceived.getIdentificador()).setAck(Mensagem.Ack.RECONHECIDO);
             System.out.println("Mensagem id " + mensagemReceived.getIdentificador() + " recebida pelo receiver");
         }
-        if (mensagemReceived.getIdentificador() > lastReceived)
-            lastReceived = mensagemReceived.getIdentificador();
+        if (mensagemReceived.getIdentificador() > lastReceivedId)
+            lastReceivedId = mensagemReceived.getIdentificador();
 
     }
 
