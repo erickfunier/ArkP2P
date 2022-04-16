@@ -66,28 +66,6 @@ public class Sender {
         }
     }
 
-    // usado para serializar um pacote(Mensagem) para um array de bytes
-    private static byte[] msg2byte(Mensagem msg) {
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        try (ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream)) {
-            objectOutputStream.writeObject(msg);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return byteArrayOutputStream.toByteArray();
-    }
-
-    // usado apra deserializar um array de byte[] em um pacote(Mensagem)
-    private static Mensagem byte2msg(byte[] data) {
-        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(data);
-        try (ObjectInputStream objectInputStream = new ObjectInputStream((byteArrayInputStream))) {
-            return (Mensagem) objectInputStream.readObject();
-        } catch (IOException | ClassNotFoundException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
     // usado para o envio dos pacotes(mensagem) atravez do Socket
     // @timer: instância do timer para agendar um timeout
     // @datagramSocket: socket inicializado para o envio do pacote
@@ -95,20 +73,22 @@ public class Sender {
     // @index: index do pacote(Mensagem) no buffer para ser enviado
     // @mode: modo de envio, utilizado apenas para realizar a impressao da mensagem com o modo de envio
     private static void sendMessage(Timer timer, DatagramSocket datagramSocket, InetAddress inetAddress, int index, Mode mode) throws IOException {
-        Mensagem mensagem = mensagemBuffer.get(index);
-        byte[] sendData = msg2byte(mensagem);
+        Mensagem mensagem = mensagemBuffer.get(index); // obtem a mensagem do buffer de pacotes
+        byte[] sendData = Mensagem.msg2byte(mensagem); // obtem o array bytes a partir da mensagem
 
         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, inetAddress, 9876);
         datagramSocket.send(sendPacket);
 
-        // 
+        // Timeout - Instancia uma nova TimerTask e agenda ela no Timer passado como parametro. A função run do timer será chamada apos 5 segundos
         if (timer != null) {
             TimerTask task = new Timeout(mensagem.getIdentificador(), datagramSocket, inetAddress);
 
             timer.schedule(task, 5000);
         }
 
-        mensagem.setAck(Mensagem.Ack.ENVIADO_NAO_RECONHECIDO);
+        mensagem.setAck(Mensagem.Ack.ENVIADO_NAO_RECONHECIDO); // Pacote ja foi enviado, atualiza o ack para ENVIADO_NAO_RECONHECIDO
+
+        // utilizado para realizar a impressao do log da mensagem enviada, mensagens enviadas com o modo duplicado, serao impressas apenas uma vez
         if (mode != null)
             System.out.println("Mensagem \""+ mensagem.getMsg() +"\" enviada como "+ mode +" com o id " + mensagem.getIdentificador());
 
@@ -117,7 +97,7 @@ public class Sender {
             for (Integer integer : outOfOrder) {
                 mensagem = mensagemBuffer.get(integer);
 
-                sendData = msg2byte(mensagem);
+                sendData = Mensagem.msg2byte(mensagem);
 
                 sendPacket = new DatagramPacket(sendData, sendData.length, inetAddress, 9876);
                 datagramSocket.send(sendPacket);
@@ -125,28 +105,34 @@ public class Sender {
                 mensagem.setAck(Mensagem.Ack.ENVIADO_NAO_RECONHECIDO);
                 System.out.println("Mensagem \"" + mensagem.getMsg() + "\" enviada como " + Mode.fora_de_ordem.toString().replaceAll("_", " ") + " com o id " + mensagem.getIdentificador());
 
-                TimerTask task2 = new Timeout(mensagem.getIdentificador(), datagramSocket, inetAddress);
+                if (timer != null) {
+                    TimerTask task2 = new Timeout(mensagem.getIdentificador(), datagramSocket, inetAddress);
 
-                timer.schedule(task2, 5000);
-                receivePacket(datagramSocket);
+                    timer.schedule(task2, 5000);
+                }
 
+                receivePacket(datagramSocket); // blocking
             }
             outOfOrder.clear();
         }
     }
 
+    // Utilizada para receber os pacotes de resposta do Receiver
     private static void receivePacket(DatagramSocket datagramSocket) throws IOException {
         byte[] recDataBuffer = new byte[1024];
         DatagramPacket recDatagramPacket = new DatagramPacket(recDataBuffer, recDataBuffer.length);
 
         datagramSocket.receive(recDatagramPacket);
 
-        Mensagem mensagemReceived = byte2msg(recDatagramPacket.getData());
+        Mensagem mensagemReceived = Mensagem.byte2msg(recDatagramPacket.getData());
 
+        // Caso o pacote recebido tenha o ACK de RECONHECIDO, atualiza o buffer do sender com o ACK da mensagem e faz o log para o usuario
         if (mensagemReceived.getAck() == Mensagem.Ack.RECONHECIDO) {
             mensagemBuffer.get(mensagemReceived.getIdentificador()).setAck(Mensagem.Ack.RECONHECIDO);
             System.out.println("Mensagem id " + mensagemReceived.getIdentificador() + " recebida pelo receiver");
         }
+
+        // atualiza o id da ultima mensagem recebida pelo Receiver caso id seja maior que o ultimo id recebido
         if (mensagemReceived.getIdentificador() > lastReceivedId)
             lastReceivedId = mensagemReceived.getIdentificador();
 
@@ -156,7 +142,7 @@ public class Sender {
         DatagramSocket datagramSocket = new DatagramSocket();
         InetAddress inetAddress = InetAddress.getByName("127.0.0.1");
         Scanner userInput = new Scanner(System.in);
-        int idCounter = -1;
+        int idCounter = -1; // variavel utilizada como contador progressivo de pacotes criados para novas mensagens
 
         while (true) {
             System.out.println("Digite a mensagem a ser enviada, ou se desejar sair digite \\exit:");
@@ -174,6 +160,8 @@ public class Sender {
                     "4 - duplicada\n" +
                     "5 - normal");
             int mode = userInput.nextInt();
+
+            // trata o modo de acordo
             switch (Mode.values()[mode-1]) {
                 case lenta:
                     mensagem.setAck(Mensagem.Ack.AUTORIZADO_NAO_ENVIADO);
@@ -207,7 +195,7 @@ public class Sender {
             }
 
             if (mensagem.getAck() != Mensagem.Ack.NAO_AUTORIZADO && mensagem.getAck() != Mensagem.Ack.DESCARTADO) // Se nao eh fora de ordem e nao eh perda
-                receivePacket(datagramSocket);
+                receivePacket(datagramSocket); // blocking
             userInput.nextLine();
         }
 

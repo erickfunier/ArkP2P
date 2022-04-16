@@ -1,6 +1,6 @@
 package base;
 
-import java.io.Serializable;
+import java.io.*;
 
 // Classe utilizada como objeto no envio e recebimento de mensagens
 public class Mensagem implements Serializable {
@@ -26,6 +26,7 @@ public class Mensagem implements Serializable {
         this.msg = msg;
     }
 
+
     public int getIdentificador() {
         return identificador;
     }
@@ -40,5 +41,27 @@ public class Mensagem implements Serializable {
 
     public String getMsg() {
         return msg;
+    }
+
+    // usado para serializar um pacote(Mensagem) para um array de bytes
+    public static byte[] msg2byte(Mensagem msg) {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        try (ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream)) {
+            objectOutputStream.writeObject(msg);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return byteArrayOutputStream.toByteArray();
+    }
+
+    // usado apra deserializar um array de byte[] em um pacote(Mensagem)
+    public static Mensagem byte2msg(byte[] data) {
+        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(data);
+        try (ObjectInputStream objectInputStream = new ObjectInputStream((byteArrayInputStream))) {
+            return (Mensagem) objectInputStream.readObject();
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 }

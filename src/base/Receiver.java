@@ -10,43 +10,29 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class Receiver {
-    private static byte[] msg2byte(Mensagem msg) {
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        try (ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream)) {
-            objectOutputStream.writeObject(msg);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return byteArrayOutputStream.toByteArray();
-    }
-
-    private static Mensagem byte2msg(byte[] data) {
-        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(data);
-        try (ObjectInputStream objectInputStream = new ObjectInputStream((byteArrayInputStream))) {
-            return (Mensagem) objectInputStream.readObject();
-        } catch (IOException | ClassNotFoundException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
-    private static void sendMessage(DatagramSocket datagramSocket, InetAddress inetAddress, int port, List<Mensagem> mensagemBuffer) throws IOException {
+    static final List<Mensagem> mensagemBuffer = new ArrayList<>(); // buffer de pacotes
+    // usado para o envio dos pacotes(mensagem) atravez do Socket
+    // @datagramSocket: socket inicializado para o envio do pacote
+    // @inetAddress: endereço ip para o envio do pacote
+    // @port: porta para o envio do pacote
+    // @mode: modo de envio, utilizado apenas para realizar a impressao da mensagem com o modo de envio
+    private static void sendMessage(DatagramSocket datagramSocket, InetAddress inetAddress, int port) throws IOException {
         Mensagem mensagem;
-        if (!mensagemBuffer.isEmpty()) {
-            mensagem = mensagemBuffer.get(mensagemBuffer.size()-1);
-            mensagem.setAck(Mensagem.Ack.RECONHECIDO);
-        } else {
+        // caso o pacote recebido seja o primeiro do buffer e fora de ordem, cria um novo pacote com um identificador 0
+        // caso cotrario, retorna o ultimo pacote recebido, portanto, um pacote RECONHECIDO
+        if (mensagemBuffer.isEmpty()) {
             mensagem = new Mensagem(0, null);
+        } else {
+            mensagem = mensagemBuffer.get(mensagemBuffer.size()-1);
         }
 
-        byte[] sendDataBuffer = msg2byte(mensagem);
+        byte[] sendDataBuffer = Mensagem.msg2byte(mensagem);
         DatagramPacket sendDatagramPacket = new DatagramPacket(sendDataBuffer, sendDataBuffer.length, inetAddress, port);
         datagramSocket.send(sendDatagramPacket);
     }
 
     public static void main(String[] args) {
-        List<Mensagem> mensagemBuffer = new ArrayList<>();
-        int idCounter = -1;
+        int idCounter = -1; // variavel utilizada como contador progressivo de pacotes criados para novas mensagens recebidas
         try {
             DatagramSocket datagramSocket = new DatagramSocket(9876);
 
@@ -55,31 +41,36 @@ public class Receiver {
                 DatagramPacket recDatagramPacket = new DatagramPacket(recDataBuffer, recDataBuffer.length);
                 datagramSocket.receive(recDatagramPacket);
 
-                Mensagem mensagem = byte2msg(recDatagramPacket.getData());
+                Mensagem mensagem = Mensagem.byte2msg(recDatagramPacket.getData());
 
                 if (mensagem.getIdentificador() == idCounter + 1) {
                     // Mensagem na ordem
+                    mensagem.setAck(Mensagem.Ack.RECONHECIDO);
                     mensagemBuffer.add(mensagem);
 
                     System.out.println("Mensagem id " + mensagem.getIdentificador() + " recebida na ordem, entregando para a camada de aplicação");
                     idCounter++;
 
-                } else if (mensagem.getIdentificador() == idCounter || mensagem.getIdentificador() < idCounter) {
+                } else if (mensagem.getIdentificador() <= idCounter) {
+                    // Mensagem duplicada
                     System.out.println("Mensagem id " + mensagem.getIdentificador() + " recebida de forma duplicada");
 
                 } else {
+                    // Mensagem fora de ordem
                     int lastReceived;
                     if (mensagemBuffer.size() > 0)
                         lastReceived = mensagemBuffer.get(mensagemBuffer.size()-1).getIdentificador();
                     else
                         lastReceived = -1;
+
+                    // Realiza a impressao dos identificadores das mensagens faltantes
                     List<Integer> range = IntStream.range(lastReceived+1, mensagem.getIdentificador()).boxed().collect(Collectors.toList());
                     System.out.println("Mensagem id " + mensagem.getIdentificador() + " recebida fora de ordem, ainda não recebidos os identificadores " + range);
-
                 }
+
                 InetAddress inetAddress = recDatagramPacket.getAddress();
                 int port = recDatagramPacket.getPort();
-                sendMessage(datagramSocket, inetAddress, port, mensagemBuffer);
+                sendMessage(datagramSocket, inetAddress, port);
             }
         } catch (IOException e) {
             e.printStackTrace();
