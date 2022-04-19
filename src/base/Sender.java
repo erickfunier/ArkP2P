@@ -5,12 +5,12 @@ import java.net.*;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import base.Mensagem;
 
 public class Sender {
     static final List<Mensagem> mensagemBuffer = new ArrayList<>(); // buffer de pacotes
     static final List<Integer> outOfOrder = new ArrayList<>(); // buffer de pacotes para o envio fora de ordem
     static Timer timer = new Timer(); // Timer utilizado para o time out
+    static ThreadRun threadRun;
     static int lastReceivedId = 0; // usado para armazenar o ultimo id recebido pelo receiver, eh atualizado sempre que um pacote eh recebido
     static int n = 3; // usado para o go-back-n
 
@@ -22,6 +22,23 @@ public class Sender {
         duplicada,
         normal,
         reenvio // Usado apenas para o reenvio de fora de ordem
+    }
+
+    static class ThreadRun extends Thread {
+        private final DatagramSocket datagramSocket;
+        public ThreadRun(DatagramSocket datagramSocket) {
+            this.datagramSocket = datagramSocket;
+        }
+        @Override
+        public void run() {
+            try {
+                while(true) {
+                    receivePacket(datagramSocket); // blocking
+                }
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
     }
 
     // classe usada para manusear o Timeout dos pacotes enviados
@@ -40,23 +57,19 @@ public class Sender {
             Mensagem mensagem = mensagemBuffer.get(id);
 
             if (mensagem.getAck() == Mensagem.Ack.RECONHECIDO) {
-                if (outOfOrder.contains(mensagem.getIdentificador())) {
-                    for (int i = 0; i < outOfOrder.size(); i++)
-                        if (outOfOrder.get(i) == mensagem.getIdentificador()){
-                            outOfOrder.remove(i);
-                            break;
-                        }
-                }
-
                 this.cancel();
             } else {
-                List<Integer> range = IntStream.range(lastReceivedId, mensagemBuffer.size()).boxed().collect(Collectors.toList());
+                List<Integer> range;
+                if (mensagemBuffer.get(lastReceivedId).getAck() == Mensagem.Ack.RECONHECIDO)
+                    range = IntStream.range(lastReceivedId + 1, mensagemBuffer.size()).boxed().collect(Collectors.toList());
+                else
+                    range = IntStream.range(lastReceivedId, mensagemBuffer.size()).boxed().collect(Collectors.toList());
                 try {
                     if (range.size() > 0) {
                         System.out.println("Timeout! Reenviar " + range);
                         for (int i = 0, j = 0; j < range.size(); i++, j++) {
                             sendMessage(timer, datagramSocket, inetAddress, range.get(j), null);
-                            receivePacket(datagramSocket);
+
                             if (i == n - 1) {
                                 i = -1;
                                 delay();
@@ -98,9 +111,13 @@ public class Sender {
             TimerTask task = new Timeout(mensagem.getIdentificador(), datagramSocket, inetAddress);
 
             timer.schedule(task, 5000);
+
+            if (!threadRun.isAlive())
+                threadRun.start();
         }
 
         mensagem.setAck(Mensagem.Ack.ENVIADO_NAO_RECONHECIDO); // Pacote ja foi enviado, atualiza o ack para ENVIADO_NAO_RECONHECIDO
+
 
         // utilizado para realizar a impressao do log da mensagem enviada, mensagens enviadas com o modo duplicado, serao impressas apenas uma vez
         if (mode != null)
@@ -108,7 +125,9 @@ public class Sender {
 
         // Verifica se tem pacote fora de ordem a ser enviado
         if (!outOfOrder.isEmpty()) {
-            for (int i = 0; i < n; i++) {
+            Collections.shuffle(outOfOrder);
+            for (int i = 0; i < outOfOrder.size(); i++) {
+
                 mensagem = mensagemBuffer.get(outOfOrder.get(i));
 
                 sendData = Mensagem.msg2byte(mensagem);
@@ -124,15 +143,14 @@ public class Sender {
 
                     timer.schedule(task2, 5000);
                 }
-
-                receivePacket(datagramSocket); // blocking
             }
-            //outOfOrder.clear();
+            outOfOrder.clear();
         }
     }
 
     // Utilizada para receber os pacotes de resposta do Receiver
     private static void receivePacket(DatagramSocket datagramSocket) throws IOException {
+
         byte[] recDataBuffer = new byte[1024];
         DatagramPacket recDatagramPacket = new DatagramPacket(recDataBuffer, recDataBuffer.length);
 
@@ -141,14 +159,14 @@ public class Sender {
         Mensagem mensagemReceived = Mensagem.byte2msg(recDatagramPacket.getData());
 
         // Caso o pacote recebido tenha o ACK de RECONHECIDO, atualiza o buffer do sender com o ACK da mensagem e faz o log para o usuario
-        if (mensagemReceived.getAck() == Mensagem.Ack.RECONHECIDO) {
+        if (mensagemReceived.getAck() == Mensagem.Ack.RECONHECIDO && mensagemBuffer.get(mensagemReceived.getIdentificador()).getAck() != Mensagem.Ack.RECONHECIDO) {
             mensagemBuffer.get(mensagemReceived.getIdentificador()).setAck(Mensagem.Ack.RECONHECIDO);
             System.out.println("Mensagem id " + mensagemReceived.getIdentificador() + " recebida pelo receiver");
-        }
 
-        // atualiza o id da ultima mensagem recebida pelo Receiver caso id seja maior que o ultimo id recebido
-        if (mensagemReceived.getIdentificador() > lastReceivedId)
-            lastReceivedId = mensagemReceived.getIdentificador();
+            // atualiza o id da ultima mensagem recebida pelo Receiver caso id seja maior que o ultimo id recebido
+            if (mensagemReceived.getIdentificador() > lastReceivedId)
+                lastReceivedId = mensagemReceived.getIdentificador();
+        }
 
     }
 
@@ -157,6 +175,7 @@ public class Sender {
         InetAddress inetAddress = InetAddress.getByName("127.0.0.1");
         Scanner userInput = new Scanner(System.in);
         int idCounter = -1; // variavel utilizada como contador progressivo de pacotes criados para novas mensagens
+        threadRun = new ThreadRun(datagramSocket);
 
         while (true) {
             System.out.println("Digite a mensagem a ser enviada, ou se desejar sair digite \\exit:");
@@ -208,11 +227,10 @@ public class Sender {
                     break;
             }
 
-            if (mensagem.getAck() != Mensagem.Ack.NAO_AUTORIZADO && mensagem.getAck() != Mensagem.Ack.DESCARTADO) // Se nao eh fora de ordem e nao eh perda
-                receivePacket(datagramSocket); // blocking
             userInput.nextLine();
         }
 
+        threadRun.interrupt();
         datagramSocket.close();
         timer.cancel();
     }
