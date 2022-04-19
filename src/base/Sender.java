@@ -37,9 +37,17 @@ public class Sender {
         public void run() {
             Mensagem mensagem = mensagemBuffer.get(id);
 
-            if (mensagem.getAck() == Mensagem.Ack.RECONHECIDO)
+            if (mensagem.getAck() == Mensagem.Ack.RECONHECIDO) {
+                if (outOfOrder.contains(mensagem.getIdentificador())) {
+                    for (int i = 0; i < outOfOrder.size(); i++)
+                        if (outOfOrder.get(i) == mensagem.getIdentificador()){
+                            outOfOrder.remove(i);
+                            break;
+                        }
+                }
+
                 this.cancel();
-            else {
+            } else {
                 List<Integer> range = IntStream.range(lastReceivedId +1, mensagemBuffer.size()).boxed().collect(Collectors.toList());
                 try {
                     if (range.size() > 0) {
@@ -75,6 +83,7 @@ public class Sender {
     private static void sendMessage(Timer timer, DatagramSocket datagramSocket, InetAddress inetAddress, int index, Mode mode) throws IOException {
         Mensagem mensagem = mensagemBuffer.get(index); // obtem a mensagem do buffer de pacotes
         byte[] sendData = Mensagem.msg2byte(mensagem); // obtem o array bytes a partir da mensagem
+        int n = 3; // usado para o go-back
 
         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, inetAddress, 9876);
         datagramSocket.send(sendPacket);
@@ -94,8 +103,8 @@ public class Sender {
 
         // Verifica se tem pacote fora de ordem a ser enviado
         if (!outOfOrder.isEmpty()) {
-            for (Integer integer : outOfOrder) {
-                mensagem = mensagemBuffer.get(integer);
+            for (int i = 0; i < n; i++) {
+                mensagem = mensagemBuffer.get(outOfOrder.get(i));
 
                 sendData = Mensagem.msg2byte(mensagem);
 
@@ -113,7 +122,7 @@ public class Sender {
 
                 receivePacket(datagramSocket); // blocking
             }
-            outOfOrder.clear();
+            //outOfOrder.clear();
         }
     }
 
