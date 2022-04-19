@@ -48,7 +48,7 @@ public class Receiver {
                     mensagem.setAck(Mensagem.Ack.RECONHECIDO);
                     mensagemBuffer.add(mensagem);
 
-                    System.out.println("Mensagem id " + mensagem.getIdentificador() + " recebida na ordem, entregando para a camada de aplicação");
+                    System.out.println("Mensagem id " + mensagem.getIdentificador() + " recebida na ordem, entregando para a camada de aplicacao");
                     idCounter++;
 
                 } else if (mensagem.getIdentificador() <= idCounter) {

@@ -5,12 +5,14 @@ import java.net.*;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import base.Mensagem;
 
 public class Sender {
     static final List<Mensagem> mensagemBuffer = new ArrayList<>(); // buffer de pacotes
     static final List<Integer> outOfOrder = new ArrayList<>(); // buffer de pacotes para o envio fora de ordem
     static Timer timer = new Timer(); // Timer utilizado para o time out
     static int lastReceivedId = 0; // usado para armazenar o ultimo id recebido pelo receiver, eh atualizado sempre que um pacote eh recebido
+    static int n = 3; // usado para o go-back-n
 
     // Modos de envio das mensagens
     enum Mode {
@@ -48,13 +50,17 @@ public class Sender {
 
                 this.cancel();
             } else {
-                List<Integer> range = IntStream.range(lastReceivedId +1, mensagemBuffer.size()).boxed().collect(Collectors.toList());
+                List<Integer> range = IntStream.range(lastReceivedId, mensagemBuffer.size()).boxed().collect(Collectors.toList());
                 try {
                     if (range.size() > 0) {
                         System.out.println("Timeout! Reenviar " + range);
-                        for (Integer i : range) {
-                            sendMessage(timer, datagramSocket, inetAddress, i, null);
+                        for (int i = 0, j = 0; j < range.size(); i++, j++) {
+                            sendMessage(timer, datagramSocket, inetAddress, range.get(j), null);
                             receivePacket(datagramSocket);
+                            if (i == n - 1) {
+                                i = -1;
+                                delay();
+                            }
                         }
                     }
 
@@ -83,7 +89,6 @@ public class Sender {
     private static void sendMessage(Timer timer, DatagramSocket datagramSocket, InetAddress inetAddress, int index, Mode mode) throws IOException {
         Mensagem mensagem = mensagemBuffer.get(index); // obtem a mensagem do buffer de pacotes
         byte[] sendData = Mensagem.msg2byte(mensagem); // obtem o array bytes a partir da mensagem
-        int n = 3; // usado para o go-back
 
         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, inetAddress, 9876);
         datagramSocket.send(sendPacket);
