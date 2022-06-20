@@ -94,8 +94,7 @@ public class Peer {
     // @inetAddress: endereço ip para o envio do pacote
     // @index: index do pacote(Mensagem) no buffer para ser enviado
     // @mode: modo de envio, utilizado apenas para realizar a impressao da mensagem com o modo de envio
-    private static void sendMessage(Timer timer, DatagramSocket datagramSocket, InetAddress inetAddress, int index) throws IOException {
-        Mensagem mensagem = fileList.get(index); // obtem a mensagem do buffer de pacotes
+    private static void sendMessage(Mensagem mensagem, Timer timer, DatagramSocket datagramSocket, InetAddress inetAddress) throws IOException {
         byte[] sendData = Mensagem.msg2byte(mensagem); // obtem o array bytes a partir da mensagem
 
         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, inetAddress, 10098);
@@ -177,51 +176,40 @@ public class Peer {
         int idCounter = -1; // variavel utilizada como contador progressivo de pacotes criados para novas mensagens
         threadRun = new ThreadRun(datagramSocket);
 
-        while (true) {
-            System.out.println("Digite a mensagem a ser enviada, ou se desejar sair digite \\exit:");
-            String input = mmi.nextLine();
-            if (input.equals("\\exit"))
-                break;
+        boolean leave = false;
 
-            idCounter++;
-
-
+        while (!leave) {
             System.out.println("Menu:\n" +
                     "1 - JOIN\n" +
                     "2 - SEARCH\n" +
                     "3 - DOWNLOAD\n" +
                     "4 - LEAVE");
             int mode = mmi.nextInt();
+            idCounter++;
+            Mensagem mensagem;
 
             // trata o modo de acordo
             switch (Mensagem.Req.values()[mode-1]) {
                 case JOIN:
-                    Mensagem mensagem = new Mensagem(idCounter, Mensagem.Req.JOIN, fileList);
+                    mensagem = new Mensagem(Mensagem.Req.JOIN, fileList);
 
-                    sendMessage(timer, datagramSocket, inetAddress, fileList.size()-1);
+                    sendMessage(mensagem, timer, datagramSocket, inetAddress);
 
                     break;
                 case SEARCH:
-                    mensagem.setRequest(Mensagem.Ack.DESCARTADO);
-                    fileList.add(mensagem);
+                    String searchFile = mmi.next();
+                    mensagem = new Mensagem(Mensagem.Req.SEARCH, Collections.singletonList(searchFile));
+
+                    sendMessage(mensagem, timer, datagramSocket, inetAddress);
                     break;
                 case DOWNLOAD:
-                    mensagem.setRequest(Mensagem.Ack.NAO_AUTORIZADO);
-                    fileList.add(mensagem);
-                    outOfOrder.add(mensagem.getId());
+                    // TODO: Requisicao iterando na lista de peer
                     break;
                 case LEAVE:
-                    mensagem.setRequest(Mensagem.Ack.AUTORIZADO_NAO_ENVIADO);
-                    fileList.add(mensagem);
-                    sendMessage(timer, datagramSocket, inetAddress, fileList.size()-1, null);
-                    sendMessage(timer, datagramSocket, inetAddress, fileList.size()-1, Mode.duplicada);
+                    mensagem = new Mensagem(idCounter, Mensagem.Req.LEAVE, null);
 
-                    break;
-                case normal:
-                    mensagem.setRequest(Mensagem.Ack.AUTORIZADO_NAO_ENVIADO);
-                    fileList.add(mensagem);
-                    sendMessage(timer, datagramSocket, inetAddress, fileList.size()-1, Mode.normal);
-
+                    sendMessage(mensagem, timer, datagramSocket, inetAddress);
+                    leave = true;
                     break;
             }
 
