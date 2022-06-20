@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/ChatProt.iml" filepath="$PROJECT_DIR$/ChatProt.iml" />
+      <module fileurl="file://$PROJECT_DIR$/ArkP2P.iml" filepath="$PROJECT_DIR$/ArkP2P.iml" />
     </modules>
   </component>
 </project>

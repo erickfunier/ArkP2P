@@ -1,46 +1,50 @@
 package base;
 
 import java.io.*;
+import java.util.List;
 
 // Classe utilizada como objeto no envio e recebimento de mensagens
 public class Mensagem implements Serializable {
     // header
-    private final int identificador;
-    private Ack ack;
+    private final int id;
+    private Req req;
 
     // data
-    private final String msg;
+    private final List<String> msgList;
 
     // utilizado como valores do parametro ACK
-    enum Ack {
-        NAO_AUTORIZADO,
-        DESCARTADO,
-        AUTORIZADO_NAO_ENVIADO,
-        ENVIADO_NAO_RECONHECIDO,
-        RECONHECIDO
+    enum Req {
+        JOIN,
+        SEARCH,
+        DOWNLOAD,
+        LEAVE,
+        ALIVE,
+        ALIVE_OK,
+        UPDATE,
+        DOWNLOAD_NEGADO
     }
 
-    public Mensagem(int identificador, String msg) {
-        this.identificador = identificador;
-        this.ack = Ack.NAO_AUTORIZADO; // Inicializa o pacote como NAO AUTORIZADO
-        this.msg = msg;
+    public Mensagem(int id, Req req, List<String> msgList) {
+        this.id = id;
+        this.req = req;
+        this.msgList = msgList;
     }
 
 
-    public int getIdentificador() {
-        return identificador;
+    public int getId() {
+        return id;
     }
 
-    public Ack getAck() {
-        return ack;
+    public Req getRequest() {
+        return req;
     }
 
-    public void setAck(Ack ack) {
-        this.ack = ack;
+    public void setRequest(Req req) {
+        this.req = req;
     }
 
-    public String getMsg() {
-        return msg;
+    public List<String> getMsgList() {
+        return msgList;
     }
 
     // usado para serializar um pacote(Mensagem) para um array de bytes
