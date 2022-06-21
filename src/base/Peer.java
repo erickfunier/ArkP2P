@@ -3,6 +3,7 @@ package base;
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class Peer {
 
@@ -12,9 +13,12 @@ public class Peer {
     private static String path;
     private static List<String> fileList = new ArrayList<>(); // lista de arquivos no peer
 
+    private static Map<Integer, Mensagem> msgQueue = new ConcurrentHashMap<>(); // lista de mensagens enviadas esperando OK do servidor
 
     static Timer timer = new Timer(); // Timer utilizado para o time out
     static ThreadReceive threadReceive;
+
+    private static int msgIdCounter = -1;
 
 
     static class ThreadReceive extends Thread {
@@ -43,44 +47,22 @@ public class Peer {
 
     // classe usada para manusear o Timeout dos pacotes enviados
     static class Timeout extends TimerTask {
-        private final int id;
         private final DatagramSocket datagramSocket;
         private final InetAddress inetAddress;
+        private final int port;
+        private final Mensagem mensagem;
 
-        public Timeout(int id, DatagramSocket datagramSocket, InetAddress inetAddress) {
-            this.id = id;
+        public Timeout(Mensagem mensagem, DatagramSocket datagramSocket, InetAddress inetAddress, int port) {
+            this.mensagem = mensagem;
             this.datagramSocket = datagramSocket;
             this.inetAddress = inetAddress;
+            this.port = port;
         }
 
         public void run() {
-            /*Mensagem mensagem = fileList.get(id);
-
-            if (mensagem.getRequest() == Mensagem.Ack.RECONHECIDO) {
-                this.cancel();
-            } else {
-                List<Integer> range;
-                if (fileList.get(lastReceivedId).getRequest() == Mensagem.Ack.RECONHECIDO)
-                    range = IntStream.range(lastReceivedId + 1, fileList.size()).boxed().collect(Collectors.toList());
-                else
-                    range = IntStream.range(lastReceivedId, fileList.size()).boxed().collect(Collectors.toList());
-                try {
-                    if (range.size() > 0) {
-                        System.out.println("Timeout! Reenviar " + range);
-                        for (int i = 0, j = 0; j < range.size(); i++, j++) {
-                            sendMessage(timer, datagramSocket, inetAddress, range.get(j), null);
-
-                            if (i == n - 1) {
-                                i = -1;
-                                delay();
-                            }
-                        }
-                    }
-
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }*/
+            if (msgQueue.containsKey(mensagem.getId())) {
+                sendMessage(mensagem, datagramSocket, inetAddress, port);
+            }
         }
     }
 
@@ -99,12 +81,23 @@ public class Peer {
     // @inetAddress: endereço ip para o envio do pacote
     // @index: index do pacote(Mensagem) no buffer para ser enviado
     // @mode: modo de envio, utilizado apenas para realizar a impressao da mensagem com o modo de envio
-    private static void sendMessage(Mensagem mensagem, DatagramSocket datagramSocket, InetAddress inetAddress, int port) throws IOException {
+    private static void sendMessage(Mensagem mensagem, DatagramSocket datagramSocket, InetAddress inetAddress, int port) {
+
         byte[] sendData = Mensagem.msg2byte(mensagem); // obtem o array bytes a partir da mensagem
 
         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, inetAddress, port);
-        datagramSocket.send(sendPacket);
+        try {
+            datagramSocket.send(sendPacket);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
+        if (timer != null && mensagem.getRequest() != Mensagem.Req.ALIVE_OK) {
+            TimerTask task = new Timeout(mensagem, datagramSocket, inetAddress, port);
+
+            timer.schedule(task, 2000);
+            msgQueue.put(mensagem.getId(), mensagem);
+        }
     }
 
     // Utilizada para receber os pacotes dos peers e do server
@@ -119,6 +112,8 @@ public class Peer {
 
         switch(Objects.requireNonNull(mensagemReceived).getRequest()) {
             case JOIN_OK:
+                msgQueue.remove(mensagemReceived.getId());
+
                 System.out.print("Sou peer " + datagramSocket.getLocalAddress().getHostAddress() + ":" + datagramSocket.getLocalPort() + " com arquivos ");
                 for (String file : mensagemReceived.getMsgList()) {
                     System.out.print(file + " ");
@@ -129,7 +124,7 @@ public class Peer {
                 InetAddress inetAddress = recDatagramPacket.getAddress();
                 int port = recDatagramPacket.getPort();
 
-                Mensagem mensagemResp = new Mensagem(Mensagem.Req.ALIVE_OK, null);
+                Mensagem mensagemResp = new Mensagem(-1, Mensagem.Req.ALIVE_OK, null);
 
                 sendMessage(mensagemResp, datagramSocket, inetAddress, port);
                 break;
@@ -154,8 +149,6 @@ public class Peer {
 
         InetAddress serverAddress = null;
 
-
-
         while (true) {
             System.out.println("Menu:\n" +
                     "1 - JOIN\n" +
@@ -164,7 +157,7 @@ public class Peer {
                     "4 - LEAVE");
             int mode = mmi.nextInt();
             Mensagem mensagem;
-
+            msgIdCounter++;
             // trata o modo de acordo
             switch (mode) {
                 case 1: // JOIN
@@ -185,20 +178,17 @@ public class Peer {
                         }
                     }
 
-                    /*for (String file : fileList) {
-                        System.out.println(file);
-                    }*/
                     threadReceive = new ThreadReceive(datagramSocket);
                     threadReceive.start();
 
-                    mensagem = new Mensagem(Mensagem.Req.JOIN, fileList);
+                    mensagem = new Mensagem(msgIdCounter, Mensagem.Req.JOIN, fileList);
 
                     sendMessage(mensagem, datagramSocket, serverAddress, serverPort);
 
                     break;
                 case 2: // SEARCH
                     String searchFile = mmi.next();
-                    mensagem = new Mensagem(Mensagem.Req.SEARCH, Collections.singletonList(searchFile));
+                    mensagem = new Mensagem(msgIdCounter, Mensagem.Req.SEARCH, Collections.singletonList(searchFile));
 
                     sendMessage(mensagem, datagramSocket, serverAddress, serverPort);
                     break;
@@ -206,7 +196,7 @@ public class Peer {
                     // TODO: Requisicao iterando na lista de peer
                     break;
                 case 4: // LEAVE
-                    mensagem = new Mensagem(Mensagem.Req.LEAVE, null);
+                    mensagem = new Mensagem(msgIdCounter, Mensagem.Req.LEAVE, null);
 
                     sendMessage(mensagem, datagramSocket, serverAddress, serverPort);
 

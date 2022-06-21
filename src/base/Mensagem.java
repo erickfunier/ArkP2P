@@ -6,6 +6,7 @@ import java.util.List;
 // Classe utilizada como objeto no envio e recebimento de mensagens
 public class Mensagem implements Serializable {
     // header
+    private int id;
     private Req req;
 
     // data
@@ -25,9 +26,14 @@ public class Mensagem implements Serializable {
         LEAVE_OK
     }
 
-    public Mensagem(Req req, List<String> msgList) {
+    public Mensagem(int id, Req req, List<String> msgList) {
+        this.id = id;
         this.req = req;
         this.msgList = msgList;
+    }
+
+    public int getId() {
+        return id;
     }
 
     public Req getRequest() {
