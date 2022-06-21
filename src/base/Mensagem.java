@@ -19,8 +19,10 @@ public class Mensagem implements Serializable {
         LEAVE,
         ALIVE,
         ALIVE_OK,
+        JOIN_OK,
         UPDATE,
-        DOWNLOAD_NEGADO
+        DOWNLOAD_NEGADO,
+        LEAVE_OK
     }
 
     public Mensagem(Req req, List<String> msgList) {

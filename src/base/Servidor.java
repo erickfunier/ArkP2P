@@ -1,83 +1,199 @@
 package base;
 
-import java.io.*;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
+import java.io.IOException;
+import java.net.*;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class Servidor {
-    static final List<Mensagem> mensagemBuffer = new ArrayList<>(); // buffer de pacotes
+public class Servidor extends Thread {
+    static final Map<String, List<String>> peerList = new ConcurrentHashMap<>();
+    static final List<String> peerAliveQueue = new ArrayList<>();
 
-    static final Map<String, List<String>> peerList = new HashMap<>();
+    static Timer timer = new Timer(); // Timer utilizado para o time out aguardando o ALIVE_OK
+
+    static ThreadAlive threadAlive;
+
+    private static DatagramSocket datagramSocket;
+
+    public Servidor(DatagramSocket datagramSocket) {
+        Servidor.datagramSocket = datagramSocket;
+    }
+
+    static class ThreadAlive extends Thread {
+        private final DatagramSocket datagramSocket;
+        public ThreadAlive(DatagramSocket datagramSocket) {
+            this.datagramSocket = datagramSocket;
+        }
+        @Override
+        public void run() {
+            while (true) {
+                delay();
+                if (!peerList.isEmpty()) {
+                    for (Map.Entry<String, List<String>> peer :
+                            peerList.entrySet()) {
+
+                        if (!peerAliveQueue.contains(peer.getKey())) { // alive ja solicitado para esse peer
+                            String peerIp = peer.getKey().split(":")[0];
+                            int port = Integer.parseInt(peer.getKey().split(":")[1]);
+
+                            try {
+                                InetAddress inetAddress = InetAddress.getByName(peerIp);
+
+                                Mensagem mensagem = new Mensagem(Mensagem.Req.ALIVE, null);
+
+                                sendMessage(mensagem, datagramSocket, inetAddress, port);
+                                peerAliveQueue.add(peer.getKey());
+
+                                // Timeout - Instancia uma nova TimerTask e agenda ela no Timer passado como parametro. A função run do timer será chamada apos 5 segundos
+                                if (timer != null) {
+                                    TimerTask task = new Timeout(peer.getKey());
+
+                                    timer.schedule(task, 2000);
+                                }
+
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                    }
+                }
+            }
+
+        }
+
+        @Override
+        protected void finalize() throws Throwable {
+            super.finalize();
+
+            datagramSocket.close();
+        }
+    }
+
+    // Usado para simular o modo lentidao
+    private static void delay() {
+        try {
+            Thread.sleep(30000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    static class Timeout extends TimerTask {
+        private final String peerAddress;
+
+        public Timeout(String peerAddress) {
+            this.peerAddress = peerAddress;
+        }
+
+        public void run() {
+            if (peerAliveQueue.contains(peerAddress)) { // ALIVE_OK not received, remove peer
+                System.out.print("Peer " + peerAddress.split(":")[0] + ":"
+                        + peerAddress.split(":")[1] + " morto. Eliminando seus arquivos ");
+                for (String file : peerList.get(peerAddress)) {
+                    System.out.print(file + " ");
+                }
+                System.out.print("\n");
+                peerList.remove(peerAddress);
+                peerAliveQueue.remove(peerAddress);
+            }
+        }
+    }
+
     // usado para o envio dos pacotes(mensagem) atravez do Socket
     // @datagramSocket: socket inicializado para o envio do pacote
     // @inetAddress: endereço ip para o envio do pacote
     // @port: porta para o envio do pacote
     // @mode: modo de envio, utilizado apenas para realizar a impressao da mensagem com o modo de envio
-    private static void sendMessage(DatagramSocket datagramSocket, InetAddress inetAddress, int port) throws IOException {
-        Mensagem mensagem;
-        // caso o pacote recebido seja o primeiro do buffer e fora de ordem, cria um novo pacote com um identificador 0
-        // caso cotrario, retorna o ultimo pacote recebido, portanto, um pacote RECONHECIDO
-        if (mensagemBuffer.isEmpty()) {
-            mensagem = new Mensagem(0, null);
-        } else {
-            mensagem = mensagemBuffer.get(mensagemBuffer.size()-1);
-        }
+    private static void sendMessage(Mensagem mensagem, DatagramSocket datagramSocket, InetAddress inetAddress, int port) throws IOException {
 
         byte[] sendDataBuffer = Mensagem.msg2byte(mensagem);
         DatagramPacket sendDatagramPacket = new DatagramPacket(sendDataBuffer, sendDataBuffer.length, inetAddress, port);
         datagramSocket.send(sendDatagramPacket);
     }
 
-    public static void main(String[] args) {
-        int idCounter = -1; // variavel utilizada como contador progressivo de pacotes criados para novas mensagens recebidas
-        try {
-            DatagramSocket datagramSocket = new DatagramSocket(10098);
+    private static void receivePacket(DatagramSocket datagramSocket) throws IOException {
+        byte[] recDataBuffer = new byte[1024];
+        DatagramPacket recDatagramPacket = new DatagramPacket(recDataBuffer, recDataBuffer.length);
 
-            while (true) {
-                byte[] recDataBuffer = new byte[1024];
-                DatagramPacket recDatagramPacket = new DatagramPacket(recDataBuffer, recDataBuffer.length);
-                datagramSocket.receive(recDatagramPacket);
+        datagramSocket.receive(recDatagramPacket);
 
-                Mensagem mensagem = Mensagem.byte2msg(recDatagramPacket.getData());
+        Mensagem msgReceived = Mensagem.byte2msg(recDatagramPacket.getData());
+        Mensagem msgReply;
+        InetAddress ipReceived;
+        int portReceived;
+        String peerNameReceived;
 
-                if (mensagem.getId() == idCounter + 1) {
-                    // Mensagem na ordem
-                    mensagem.setRequest(Mensagem.Ack.RECONHECIDO);
-                    mensagemBuffer.add(mensagem);
+        switch(Objects.requireNonNull(msgReceived).getRequest()) {
+            case JOIN:
+                ipReceived = recDatagramPacket.getAddress();
+                portReceived = recDatagramPacket.getPort();
 
-                    System.out.println("Mensagem id " + mensagem.getId() + " recebida na ordem, entregando para a camada de aplicacao");
-                    idCounter++;
-
-                } else if (mensagem.getId() <= idCounter) {
-                    // Mensagem duplicada
-                    System.out.println("Mensagem id " + mensagem.getId() + " recebida de forma duplicada");
-
-                } else {
-                    // Mensagem fora de ordem
-                    int lastReceived;
-                    if (mensagemBuffer.size() > 0)
-                        lastReceived = mensagemBuffer.get(mensagemBuffer.size()-1).getId();
-                    else
-                        lastReceived = -1;
-
-                    // Realiza a impressao dos identificadores das mensagens faltantes
-                    List<Integer> range = IntStream.range(lastReceived+1, mensagem.getId()).boxed().collect(Collectors.toList());
-                    System.out.println("Mensagem id " + mensagem.getId() + " recebida fora de ordem, ainda não recebidos os identificadores " + range);
+                System.out.print("Peer " + ipReceived.getHostAddress() + ":" + portReceived + " adicionado com arquivos ");
+                for (String file : msgReceived.getMsgList()) {
+                    System.out.print(file + " ");
                 }
+                System.out.print("\n");
 
-                InetAddress inetAddress = recDatagramPacket.getAddress();
-                int port = recDatagramPacket.getPort();
-                sendMessage(datagramSocket, inetAddress, port);
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
+                peerNameReceived = ipReceived.getHostAddress() + ":" + portReceived;
+
+                peerList.put(peerNameReceived, msgReceived.getMsgList());
+
+                msgReply = new Mensagem(Mensagem.Req.JOIN_OK, msgReceived.getMsgList());
+
+                sendMessage(msgReply, datagramSocket, ipReceived, portReceived);
+                break;
+            case ALIVE_OK:
+                ipReceived = recDatagramPacket.getAddress();
+                portReceived = recDatagramPacket.getPort();
+
+                peerNameReceived = ipReceived.getHostAddress() + ":" + portReceived;
+
+                peerAliveQueue.remove(peerNameReceived);
+                break;
+            case LEAVE:
+                ipReceived = recDatagramPacket.getAddress();
+                portReceived = recDatagramPacket.getPort();
+
+                peerNameReceived = ipReceived.getHostAddress() + ":" + portReceived;
+
+                peerList.remove(peerNameReceived);
+                msgReply = new Mensagem(Mensagem.Req.LEAVE_OK, null);
+
+                sendMessage(msgReply, datagramSocket, ipReceived, portReceived);
+                break;
+
         }
+    }
+
+    public static void main(String[] args) throws UnknownHostException, SocketException {
+        String ip;
+        Scanner mmi = new Scanner(System.in);
+        ip = mmi.next();
+
+        InetAddress inetAddressServer = InetAddress.getByName(ip);
+        datagramSocket = new DatagramSocket(10098, inetAddressServer);
+
+        threadAlive = new ThreadAlive(datagramSocket);
+        threadAlive.start();
+        Servidor servidor = new Servidor(datagramSocket);
+        servidor.start();
+
+    }
+
+    public void run() {
+        while(true) {
+            try {
+                receivePacket(datagramSocket);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    @Override
+    protected void finalize() throws Throwable {
+        super.finalize();
+        threadAlive.interrupt();
+        timer.cancel();
     }
 }
