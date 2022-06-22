@@ -11,7 +11,7 @@ public class Peer {
     private static int peerPort;
 
     private static String path;
-    private static List<String> fileList = new ArrayList<>(); // lista de arquivos no peer
+    private static final List<String> fileList = new ArrayList<>(); // lista de arquivos no peer
 
     private static Map<Integer, Mensagem> msgQueue = new ConcurrentHashMap<>(); // lista de mensagens enviadas esperando OK do servidor
 
@@ -61,7 +61,9 @@ public class Peer {
 
         public void run() {
             if (msgQueue.containsKey(mensagem.getId())) {
+                System.out.println("Resending msg");
                 sendMessage(mensagem, datagramSocket, inetAddress, port);
+                msgQueue.remove(mensagem.getId());
             }
         }
     }
@@ -83,7 +85,10 @@ public class Peer {
     // @mode: modo de envio, utilizado apenas para realizar a impressao da mensagem com o modo de envio
     private static void sendMessage(Mensagem mensagem, DatagramSocket datagramSocket, InetAddress inetAddress, int port) {
 
-        byte[] sendData = Mensagem.msg2byte(mensagem); // obtem o array bytes a partir da mensagem
+        //byte[] sendData = Mensagem.msg2byteComp(mensagem); // obtem o array bytes a partir da mensagem
+        byte[] sendData = Mensagem.msg2byteJsonComp(mensagem); // obtem o array bytes a partir da mensagem
+
+        System.out.println(sendData.length);
 
         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, inetAddress, port);
         try {
@@ -108,14 +113,15 @@ public class Peer {
 
         datagramSocket.receive(recDatagramPacket);
 
-        Mensagem mensagemReceived = Mensagem.byte2msg(recDatagramPacket.getData());
+        //Mensagem msgReceived = Mensagem.byte2msgDecomp(recDatagramPacket.getData());
+        Mensagem msgReceived = Mensagem.byte2msgJsonDecomp(recDatagramPacket.getData());
 
-        switch(Objects.requireNonNull(mensagemReceived).getRequest()) {
+        switch(Objects.requireNonNull(msgReceived).getRequest()) {
             case JOIN_OK:
-                msgQueue.remove(mensagemReceived.getId());
+                msgQueue.remove(msgReceived.getId());
 
-                System.out.print("Sou peer " + datagramSocket.getLocalAddress().getHostAddress() + ":" + datagramSocket.getLocalPort() + " com arquivos ");
-                for (String file : mensagemReceived.getMsgList()) {
+                System.out.print("Sou peer " + msgReceived.getMsgList().get(0) + " com arquivos ");
+                for (String file : fileList) {
                     System.out.print(file + " ");
                 }
                 System.out.print("\n");
@@ -129,7 +135,20 @@ public class Peer {
                 sendMessage(mensagemResp, datagramSocket, inetAddress, port);
                 break;
             case LEAVE_OK:
-                System.out.println("LEAVE_OK");
+                msgQueue.remove(msgReceived.getId());
+
+                break;
+            case SEARCH:
+                msgQueue.remove(msgReceived.getId());
+
+                List<String> searchPeerList = msgReceived.getMsgList();
+
+                System.out.print("Peers com o arquivo solicitado: ");
+                for (String peer : searchPeerList) {
+                    System.out.print(peer);
+                }
+                System.out.print("\n");
+
                 break;
         }
     }
@@ -137,12 +156,12 @@ public class Peer {
     public static void main(String[] args) throws IOException {
         Scanner mmi = new Scanner(System.in); // interface homem maquina
 
-        peerIp = mmi.next();
+        /*peerIp = mmi.next();
         peerPort = mmi.nextInt();
 
-        InetAddress peerAddress = InetAddress.getByName(peerIp);
+        InetAddress peerAddress = InetAddress.getByName(peerIp);*/
 
-        DatagramSocket datagramSocket = new DatagramSocket(peerPort, peerAddress);
+        DatagramSocket datagramSocket = new DatagramSocket();
 
         String serverIp;
         int serverPort = 0;
@@ -171,6 +190,7 @@ public class Peer {
 
                     File[] listOfFiles = folder.listFiles();
 
+                    fileList.clear();
                     assert listOfFiles != null;
                     for (File file : listOfFiles) {
                         if (file.isFile()) {
@@ -188,6 +208,7 @@ public class Peer {
                     break;
                 case 2: // SEARCH
                     String searchFile = mmi.next();
+
                     mensagem = new Mensagem(msgIdCounter, Mensagem.Req.SEARCH, Collections.singletonList(searchFile));
 
                     sendMessage(mensagem, datagramSocket, serverAddress, serverPort);

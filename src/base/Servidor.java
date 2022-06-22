@@ -75,7 +75,8 @@ public class Servidor {
         }
         @Override
         public void run() {
-            Mensagem msgReceived = Mensagem.byte2msg(datagramPacket.getData());
+            //Mensagem msgReceived = Mensagem.byte2msg(datagramPacket.getData());
+            Mensagem msgReceived = Mensagem.byte2msgJson(datagramPacket.getData());
             Mensagem msgReply;
             InetAddress ipReceived;
             int portReceived;
@@ -96,7 +97,7 @@ public class Servidor {
 
                     peerList.put(peerNameReceived, msgReceived.getMsgList());
 
-                    msgReply = new Mensagem(msgReceived.getId(), Mensagem.Req.JOIN_OK, msgReceived.getMsgList());
+                    msgReply = new Mensagem(msgReceived.getId(), Mensagem.Req.JOIN_OK, Collections.singletonList(peerNameReceived));
 
                     sendMessage(msgReply, datagramSocket, ipReceived, portReceived);
                     break;
@@ -119,14 +120,23 @@ public class Servidor {
 
                     sendMessage(msgReply, datagramSocket, ipReceived, portReceived);
                     break;
+                case SEARCH:
+                    ipReceived = datagramPacket.getAddress();
+                    portReceived = datagramPacket.getPort();
+
+                    List<String> searchPeerList = new ArrayList<>();
+
+                    for (Map.Entry<String, List<String>> peer : peerList.entrySet()) {
+                        if (peer.getValue().contains(msgReceived.getMsgList().get(0))) {
+                            searchPeerList.add(peer.getKey());
+                        }
+                    }
+
+                    msgReply = new Mensagem(msgReceived.getId(), Mensagem.Req.SEARCH, searchPeerList);
+
+                    sendMessage(msgReply, datagramSocket, ipReceived, portReceived);
+                    break;
             }
-        }
-
-        @Override
-        protected void finalize() throws Throwable {
-            super.finalize();
-
-            datagramSocket.close();
         }
     }
 
@@ -167,7 +177,9 @@ public class Servidor {
     // @mode: modo de envio, utilizado apenas para realizar a impressao da mensagem com o modo de envio
     private static void sendMessage(Mensagem mensagem, DatagramSocket datagramSocket, InetAddress inetAddress, int port) {
 
-        byte[] sendDataBuffer = Mensagem.msg2byte(mensagem);
+        byte[] sendDataBuffer = Mensagem.msg2byteJson(mensagem);
+        //byte[] sendDataBuffer = Mensagem.msg2byte(mensagem);
+
         DatagramPacket sendDatagramPacket = new DatagramPacket(sendDataBuffer, sendDataBuffer.length, inetAddress, port);
         try {
             datagramSocket.send(sendDatagramPacket);
@@ -200,9 +212,16 @@ public class Servidor {
         threadAlive = new ThreadAlive(datagramSocket);
         threadAlive.start();
 
+
+
         while(true) {
             try {
-                receivePacket(datagramSocket);
+                if (datagramSocket.isClosed()) {
+                    System.out.println("Socket Closed");
+                } else {
+                    receivePacket(datagramSocket);
+                }
+
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
