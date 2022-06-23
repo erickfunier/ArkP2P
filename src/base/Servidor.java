@@ -76,7 +76,7 @@ public class Servidor {
         @Override
         public void run() {
             //Mensagem msgReceived = Mensagem.byte2msg(datagramPacket.getData());
-            Mensagem msgReceived = Mensagem.byte2msgJson(datagramPacket.getData());
+            Mensagem msgReceived = Mensagem.byte2msgJsonDecomp(datagramPacket.getData());
             Mensagem msgReply;
             InetAddress ipReceived;
             int portReceived;
@@ -177,7 +177,7 @@ public class Servidor {
     // @mode: modo de envio, utilizado apenas para realizar a impressao da mensagem com o modo de envio
     private static void sendMessage(Mensagem mensagem, DatagramSocket datagramSocket, InetAddress inetAddress, int port) {
 
-        byte[] sendDataBuffer = Mensagem.msg2byteJson(mensagem);
+        byte[] sendDataBuffer = Mensagem.msg2byteJsonComp(mensagem);
         //byte[] sendDataBuffer = Mensagem.msg2byte(mensagem);
 
         DatagramPacket sendDatagramPacket = new DatagramPacket(sendDataBuffer, sendDataBuffer.length, inetAddress, port);

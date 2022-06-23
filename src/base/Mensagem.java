@@ -99,7 +99,7 @@ public class Mensagem implements Serializable {
             byte[] output = outputStream.toByteArray();
             deflater.end();
 
-            System.out.println("Original: " + data.length + " bytes, -->  Compressed: " + output.length + " bytes");
+            //System.out.println("Original: " + data.length + " bytes, -->  Compressed: " + output.length + " bytes");
             return output;
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -148,7 +148,7 @@ public class Mensagem implements Serializable {
 
             byte[] output = outputStream.toByteArray();
             inflater.end();
-            System.out.println("Original: " + data.length + " bytes --> " + "Uncompressed: " + output.length + " bytes");
+            //System.out.println("Original: " + data.length + " bytes --> " + "Uncompressed: " + output.length + " bytes");
             return output;
         } catch (IOException | DataFormatException e) {
             throw new RuntimeException(e);
@@ -158,6 +158,7 @@ public class Mensagem implements Serializable {
     public static byte[] msg2byteJson(Mensagem msg) {
         Gson gson = new Gson();
         String msgJson = gson.toJson(msg);
+        System.out.println(msgJson);
         return msgJson.getBytes();
     }
 
@@ -169,7 +170,7 @@ public class Mensagem implements Serializable {
 
     public static Mensagem byte2msgJson(byte[] data) {
         Gson gson = new Gson();
-        String msgJson = Arrays.toString(data);
+        String msgJson = new String(data);
         return gson.fromJson(msgJson, Mensagem.class);
     }
 
@@ -177,7 +178,7 @@ public class Mensagem implements Serializable {
         data = decompress(data);
 
         Gson gson = new Gson();
-        String msgJson = Arrays.toString(data);
+        String msgJson = new String(data);
         return gson.fromJson(msgJson, Mensagem.class);
     }
 }
