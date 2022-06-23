@@ -60,6 +60,51 @@ public class Peer {
             try (Socket socket = new Socket(ip, port)) {
                 System.out.println("Connected");
 
+                Mensagem mensagem = new Mensagem(-1, Mensagem.Req.DOWNLOAD, Collections.singletonList(fileName));
+                OutputStream outputStream = socket.getOutputStream();
+                ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
+                objectOutputStream.writeObject(mensagem);
+
+
+                InputStream is = socket.getInputStream();
+
+                BufferedInputStream bis = new BufferedInputStream(is);
+
+                byte[] msgtest = new byte[1024];
+                bis.read(msgtest);
+
+                try (ObjectInputStream objectInputStream = new ObjectInputStream(is)) {
+                    Object mensagemRec = objectInputStream.readObject();
+
+                    if (mensagemRec.getClass().equals(Mensagem.class)) {
+                        socket.close();
+                        System.out.println("MSG recebida " + ((Mensagem) mensagemRec).getRequest());
+                    }
+
+                } catch (ClassNotFoundException e) {
+                    throw new RuntimeException(e);
+                } catch (IOException e) {
+                    byte[] mybytearray = new byte[1024];
+                    InputStream is2 = socket.getInputStream();
+                    FileOutputStream fos = new FileOutputStream(fileName);
+                    BufferedOutputStream bos = new BufferedOutputStream(fos);
+                    int bytesRead = is2.read(mybytearray, 0, mybytearray.length);
+                    bos.write(mybytearray, 0, bytesRead);
+                    bos.close();
+                    socket.close();
+                    System.out.println("Done");
+
+                    //throw new RuntimeException(e);
+                }
+
+                /*byte[] mybytearray = new byte[1024];
+                InputStream is = sock.getInputStream();
+                FileOutputStream fos = new FileOutputStream("s.pdf");
+                BufferedOutputStream bos = new BufferedOutputStream(fos);
+                int bytesRead = is.read(mybytearray, 0, mybytearray.length);
+                bos.write(mybytearray, 0, bytesRead);
+                bos.close();
+                sock.close();*/
 
             } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -69,7 +114,6 @@ public class Peer {
 
     static class ThreadDownloadReceiver extends Thread {
         public ThreadDownloadReceiver() {
-
         }
         @Override
         public void run() {
@@ -78,7 +122,37 @@ public class Peer {
                     Socket socket = serverSocket.accept();
                     System.out.println("Accepted connection : " + socket);
 
-                    Mensagem mensagem = new Mensagem(-1, Mensagem.Req.DOWNLOAD_NEGADO, null);
+                    InputStream is = socket.getInputStream();
+                    ObjectInputStream objectInputStream = new ObjectInputStream(is);
+
+                    try {
+                        Object mensagemRec = objectInputStream.readObject();
+
+                        if (mensagemRec.getClass().equals(Mensagem.class)) {
+                            //socket.close();
+                            System.out.println("MSG recebida " + ((Mensagem) mensagemRec).getRequest());
+                            String fileName = ((Mensagem) mensagemRec).getMsgList().get(0);
+
+                            // send file
+                            File myFile = new File (path + "\\" + fileName);
+                            byte [] mybytearray  = new byte [(int)myFile.length()];
+                            FileInputStream fis = new FileInputStream(myFile);
+                            BufferedInputStream bis = new BufferedInputStream(fis);
+                            bis.read(mybytearray,0,mybytearray.length);
+                            OutputStream os = socket.getOutputStream();
+                            System.out.println("Sending " + fileName + "(" + mybytearray.length + " bytes)");
+                            os.write(mybytearray,0,mybytearray.length);
+                            os.flush();
+                            System.out.println("Done.");
+                        } else {
+                            //System.out.println("Classe errada");
+                        }
+
+                    } catch (ClassNotFoundException e) {
+                        throw new RuntimeException(e);
+                    }
+
+                    /*Mensagem mensagem = new Mensagem(-1, Mensagem.Req.DOWNLOAD_NEGADO, null);
 
                     OutputStream outputStream = socket.getOutputStream();
 
@@ -86,19 +160,9 @@ public class Peer {
 
                     objectOutputStream.writeObject(mensagem);
 
-                    socket.close();
+                    socket.close();*/
 
-                    // send file
-                    /*File myFile = new File (FILE_TO_SEND);
-                    byte [] mybytearray  = new byte [(int)myFile.length()];
-                    fis = new FileInputStream(myFile);
-                    bis = new BufferedInputStream(fis);
-                    bis.read(mybytearray,0,mybytearray.length);
-                    os = sock.getOutputStream();
-                    System.out.println("Sending " + FILE_TO_SEND + "(" + mybytearray.length + " bytes)");
-                    os.write(mybytearray,0,mybytearray.length);
-                    os.flush();
-                    System.out.println("Done.");*/
+
 
                 }
 
@@ -215,7 +279,7 @@ public class Peer {
 
                 System.out.print("Peers com o arquivo solicitado: ");
                 for (String peer : searchPeerList) {
-                    System.out.print(peer);
+                    System.out.print(peer + " ");
                 }
                 System.out.print("\n");
 
@@ -255,6 +319,9 @@ public class Peer {
                     path = mmi.next();
 
                     serverAddress = InetAddress.getByName(serverIp);
+
+                    if (path.contains(" "))
+                        path = "'" + path + "'";
 
                     File folder = new File(path);
 
