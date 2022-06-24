@@ -2,6 +2,10 @@ package base;
 
 import java.io.*;
 import java.net.*;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -57,45 +61,49 @@ public class Peer {
         }
         @Override
         public void run() {
-            try (Socket socket = new Socket(ip, port)) {
+
+            try (SocketChannel socketChannel = SocketChannel.open()) {
+                SocketAddress socketAddress = new InetSocketAddress(ip, port);
+                socketChannel.connect(socketAddress);
                 System.out.println("Connected");
 
                 Mensagem mensagem = new Mensagem(-1, Mensagem.Req.DOWNLOAD, Collections.singletonList(fileName));
-                OutputStream outputStream = socket.getOutputStream();
+
+                OutputStream outputStream = socketChannel.socket().getOutputStream();
                 ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
                 objectOutputStream.writeObject(mensagem);
 
 
-                InputStream is = socket.getInputStream();
+                /*InputStream is = socketChannel.socket().getInputStream();
 
                 BufferedInputStream bis = new BufferedInputStream(is);
 
                 byte[] msgtest = new byte[1024];
-                bis.read(msgtest);
-
-                try (ObjectInputStream objectInputStream = new ObjectInputStream(is)) {
+                bis.read(msgtest);*/
+                System.out.println("Teste1");
+                try (ObjectInputStream objectInputStream = new ObjectInputStream(socketChannel.socket().getInputStream())) {
                     Object mensagemRec = objectInputStream.readObject();
 
                     if (mensagemRec.getClass().equals(Mensagem.class)) {
-                        socket.close();
+                        socketChannel.socket().close();
                         System.out.println("MSG recebida " + ((Mensagem) mensagemRec).getRequest());
                     }
-
                 } catch (ClassNotFoundException e) {
                     throw new RuntimeException(e);
                 } catch (IOException e) {
-                    byte[] mybytearray = new byte[1024];
-                    InputStream is2 = socket.getInputStream();
+                    /*byte[] mybytearray = new byte[1024];
+                    InputStream is2 = socketChannel.socket().getInputStream();
                     FileOutputStream fos = new FileOutputStream(fileName);
                     BufferedOutputStream bos = new BufferedOutputStream(fos);
                     int bytesRead = is2.read(mybytearray, 0, mybytearray.length);
                     bos.write(mybytearray, 0, bytesRead);
                     bos.close();
-                    socket.close();
-                    System.out.println("Done");
+                    socketChannel.socket().close();
+                    System.out.println("Done");*/
 
                     //throw new RuntimeException(e);
                 }
+                System.out.println("Teste3");
 
                 /*byte[] mybytearray = new byte[1024];
                 InputStream is = sock.getInputStream();
@@ -112,17 +120,62 @@ public class Peer {
         }
     }
 
+    public void readFileFromSocket(SocketChannel socketChannel) {
+        RandomAccessFile aFile = null;
+        try {
+            aFile = new RandomAccessFile("D:\\Users\\test.png", "rw");
+            ByteBuffer buffer = ByteBuffer.allocate(1024);
+            FileChannel fileChannel = aFile.getChannel();
+            while (socketChannel.read(buffer) > 0) {
+                buffer.flip();
+                fileChannel.write(buffer);
+                buffer.clear();
+            }
+            Thread.sleep(1000);
+            fileChannel.close();
+            System.out.println("End of file reached..Closing channel");
+            socketChannel.close();
+
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    public static void sendFile(SocketChannel socketChannel, String fileName) {
+        RandomAccessFile aFile = null;
+        try {
+            File file = new File(path + "\\" + fileName);
+            aFile = new RandomAccessFile(file, "r");
+            FileChannel inChannel = aFile.getChannel();
+            ByteBuffer buffer = ByteBuffer.allocate(1024);
+            while (inChannel.read(buffer) > 0) {
+                buffer.flip();
+                socketChannel.write(buffer);
+                buffer.clear();
+            }
+            Thread.sleep(1000);
+            System.out.println("End of file reached..");
+            socketChannel.close();
+            aFile.close();
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+        }
+
+    }
+
     static class ThreadDownloadReceiver extends Thread {
         public ThreadDownloadReceiver() {
         }
         @Override
         public void run() {
-            try (ServerSocket serverSocket = new ServerSocket(peerPort)) {
-                while (true) {
-                    Socket socket = serverSocket.accept();
-                    System.out.println("Accepted connection : " + socket);
+            while (true) {
+                try (ServerSocketChannel serverSocketChannel = ServerSocketChannel.open()) {
+                    serverSocketChannel.socket().bind(new InetSocketAddress(peerIp, peerPort));
+                    SocketChannel socketChannel = serverSocketChannel.accept();
+                    System.out.println("Accepted connection : " + socketChannel);
 
-                    InputStream is = socket.getInputStream();
+                    InputStream is = socketChannel.socket().getInputStream();
                     ObjectInputStream objectInputStream = new ObjectInputStream(is);
 
                     try {
@@ -133,17 +186,29 @@ public class Peer {
                             System.out.println("MSG recebida " + ((Mensagem) mensagemRec).getRequest());
                             String fileName = ((Mensagem) mensagemRec).getMsgList().get(0);
 
+                            /*Mensagem mensagem = new Mensagem(-1, Mensagem.Req.DOWNLOAD_NEGADO, null);
+
+                            OutputStream outputStream = socketChannel.socket().getOutputStream();
+
+                            ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
+
+                            objectOutputStream.writeObject(mensagem);
+
+
+                            socketChannel.socket().close();*/
+                            sendFile(socketChannel, fileName);
+
                             // send file
-                            File myFile = new File (path + "\\" + fileName);
-                            byte [] mybytearray  = new byte [(int)myFile.length()];
-                            FileInputStream fis = new FileInputStream(myFile);
-                            BufferedInputStream bis = new BufferedInputStream(fis);
-                            bis.read(mybytearray,0,mybytearray.length);
-                            OutputStream os = socket.getOutputStream();
-                            System.out.println("Sending " + fileName + "(" + mybytearray.length + " bytes)");
-                            os.write(mybytearray,0,mybytearray.length);
-                            os.flush();
-                            System.out.println("Done.");
+                        /*File myFile = new File (path + "\\" + fileName);
+                        byte [] mybytearray  = new byte [(int)myFile.length()];
+                        FileInputStream fis = new FileInputStream(myFile);
+                        BufferedInputStream bis = new BufferedInputStream(fis);
+                        bis.read(mybytearray,0,mybytearray.length);
+                        OutputStream os = socketChannel.socket().getOutputStream();
+                        System.out.println("Sending " + fileName + "(" + mybytearray.length + " bytes)");
+                        os.write(mybytearray,0,mybytearray.length);
+                        os.flush();
+                        System.out.println("Done.");*/
                         } else {
                             //System.out.println("Classe errada");
                         }
@@ -152,23 +217,14 @@ public class Peer {
                         throw new RuntimeException(e);
                     }
 
-                    /*Mensagem mensagem = new Mensagem(-1, Mensagem.Req.DOWNLOAD_NEGADO, null);
-
-                    OutputStream outputStream = socket.getOutputStream();
-
-                    ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
-
-                    objectOutputStream.writeObject(mensagem);
-
-                    socket.close();*/
 
 
 
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
                 }
-
-            } catch (IOException e) {
-                throw new RuntimeException(e);
             }
+
         }
     }
 

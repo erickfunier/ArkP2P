@@ -55,11 +55,7 @@ public class FileReceiver {
             System.out.println("End of file reached..Closing channel");
             socketChannel.close();
 
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
+        } catch (IOException | InterruptedException e) {
             e.printStackTrace();
         }
 
