@@ -3,9 +3,7 @@ package base;
 import java.io.*;
 import java.net.*;
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.channels.ServerSocketChannel;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -29,6 +27,30 @@ public class Peer {
     static class ThreadReceive extends Thread {
         private final DatagramSocket datagramSocket;
         public ThreadReceive(DatagramSocket datagramSocket) {
+            this.datagramSocket = datagramSocket;
+        }
+        @Override
+        public void run() {
+            try {
+                while(true) {
+                    receivePacket(datagramSocket); // blocking
+                }
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        @Override
+        protected void finalize() throws Throwable {
+            super.finalize();
+
+            datagramSocket.close();
+        }
+    }
+
+    static class ThreadTest extends Thread {
+        private final DatagramSocket datagramSocket;
+        public ThreadTest(DatagramSocket datagramSocket) {
             this.datagramSocket = datagramSocket;
         }
         @Override
@@ -74,14 +96,10 @@ public class Peer {
                 objectOutputStream.writeObject(mensagem);
 
 
-                /*InputStream is = socketChannel.socket().getInputStream();
 
-                BufferedInputStream bis = new BufferedInputStream(is);
 
-                byte[] msgtest = new byte[1024];
-                bis.read(msgtest);*/
-                System.out.println("Teste1");
-                try (ObjectInputStream objectInputStream = new ObjectInputStream(socketChannel.socket().getInputStream())) {
+
+                /*try (ObjectInputStream objectInputStream = new ObjectInputStream(socketChannel.socket().getInputStream())) {
                     Object mensagemRec = objectInputStream.readObject();
 
                     if (mensagemRec.getClass().equals(Mensagem.class)) {
@@ -99,11 +117,12 @@ public class Peer {
                     bos.write(mybytearray, 0, bytesRead);
                     bos.close();
                     socketChannel.socket().close();
-                    System.out.println("Done");*/
+                    System.out.println("Done");
 
                     //throw new RuntimeException(e);
-                }
-                System.out.println("Teste3");
+                }*/
+
+                readFileFromSocket(socketChannel, fileName);
 
                 /*byte[] mybytearray = new byte[1024];
                 InputStream is = sock.getInputStream();
@@ -120,21 +139,42 @@ public class Peer {
         }
     }
 
-    public void readFileFromSocket(SocketChannel socketChannel) {
-        RandomAccessFile aFile = null;
+    public static void readFileFromSocket(SocketChannel socketChannel, String fileName) {
+        RandomAccessFile aFile;
         try {
-            aFile = new RandomAccessFile("D:\\Users\\test.png", "rw");
+            System.out.println(path + "\\" + fileName);
+            aFile = new RandomAccessFile(path + "\\" + fileName, "rw");
             ByteBuffer buffer = ByteBuffer.allocate(1024);
             FileChannel fileChannel = aFile.getChannel();
-            while (socketChannel.read(buffer) > 0) {
-                buffer.flip();
-                fileChannel.write(buffer);
-                buffer.clear();
+
+            int read = socketChannel.read(buffer);
+            if (read > 0) {
+                byte[] data = new byte[read];
+                buffer.position(0);
+                buffer.get(data);
+
+                Mensagem mensagem = Mensagem.byte2msg(data);
+
+                if (mensagem != null && mensagem.getClass().equals(Mensagem.class)) {
+                    System.out.println(mensagem.getRequest());
+                } else {
+                    buffer.flip();
+                    fileChannel.write(buffer);
+                    buffer.clear();
+                    while (socketChannel.read(buffer) > 0) {
+                        buffer.flip();
+                        fileChannel.write(buffer);
+                        buffer.clear();
+                    }
+                    Thread.sleep(1000);
+                    fileChannel.close();
+                    System.out.println("End of file reached..Closing channel");
+                    socketChannel.close();
+                }
             }
-            Thread.sleep(1000);
-            fileChannel.close();
-            System.out.println("End of file reached..Closing channel");
-            socketChannel.close();
+
+
+
 
         } catch (IOException | InterruptedException e) {
             e.printStackTrace();
@@ -143,7 +183,7 @@ public class Peer {
     }
 
     public static void sendFile(SocketChannel socketChannel, String fileName) {
-        RandomAccessFile aFile = null;
+        RandomAccessFile aFile;
         try {
             File file = new File(path + "\\" + fileName);
             aFile = new RandomAccessFile(file, "r");
@@ -186,17 +226,18 @@ public class Peer {
                             System.out.println("MSG recebida " + ((Mensagem) mensagemRec).getRequest());
                             String fileName = ((Mensagem) mensagemRec).getMsgList().get(0);
 
-                            /*Mensagem mensagem = new Mensagem(-1, Mensagem.Req.DOWNLOAD_NEGADO, null);
+                            Random rd = new Random(); // creating Random object
 
-                            OutputStream outputStream = socketChannel.socket().getOutputStream();
+                            if (rd.nextBoolean()) {
+                                Mensagem mensagem = new Mensagem(-1, Mensagem.Req.DOWNLOAD_NEGADO, null);
 
-                            ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
+                                ByteBuffer buffer = ByteBuffer.wrap(Mensagem.msg2byte(mensagem));
+                                socketChannel.write(buffer);
 
-                            objectOutputStream.writeObject(mensagem);
-
-
-                            socketChannel.socket().close();*/
-                            sendFile(socketChannel, fileName);
+                                socketChannel.socket().close();
+                            } else {
+                                sendFile(socketChannel, fileName);
+                            }
 
                             // send file
                         /*File myFile = new File (path + "\\" + fileName);

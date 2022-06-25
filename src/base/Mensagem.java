@@ -112,6 +112,17 @@ public class Mensagem implements Serializable {
         try (ObjectInputStream objectInputStream = new ObjectInputStream((byteArrayInputStream))) {
             return (Mensagem) objectInputStream.readObject();
         } catch (IOException | ClassNotFoundException e) {
+            return null;
+        }
+
+    }
+
+    // usado apra deserializar um array de byte[] em um pacote(Mensagem)
+    public static Mensagem byte2msgV2(byte[] data) {
+        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(data);
+        try (ObjectInputStream objectInputStream = new ObjectInputStream((byteArrayInputStream))) {
+            return (Mensagem) objectInputStream.readObject();
+        } catch (IOException | ClassNotFoundException e) {
             e.printStackTrace();
         }
         return null;
