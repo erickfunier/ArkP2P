@@ -28,6 +28,7 @@ public class Mensagem implements Serializable {
         ALIVE_OK,
         JOIN_OK,
         UPDATE,
+        UPDATE_OK,
         DOWNLOAD_NEGADO,
         LEAVE_OK
     }
@@ -46,41 +47,13 @@ public class Mensagem implements Serializable {
         return req;
     }
 
-    public void setRequest(Req req) {
-        this.req = req;
-    }
-
     public List<String> getMsgList() {
         return msgList;
     }
 
-    // usado para serializar um pacote(Mensagem) para um array de bytes
-    public static byte[] msg2byte(Mensagem msg) {
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        try (ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream)) {
-            objectOutputStream.writeObject(msg);
-
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return byteArrayOutputStream.toByteArray();
-    }
-
-    public static byte[] msg2byteComp(Mensagem msg) {
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        try (ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream)) {
-            objectOutputStream.writeObject(msg);
-
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return compress(byteArrayOutputStream.toByteArray());
-    }
-
     public static byte[] compress(byte[] data) {
-
         if (data == null) {
-            throw new IllegalArgumentException("data was null");
+            return null;
         }
 
         Deflater deflater = new Deflater();
@@ -106,43 +79,9 @@ public class Mensagem implements Serializable {
         }
     }
 
-    // usado apra deserializar um array de byte[] em um pacote(Mensagem)
-    public static Mensagem byte2msg(byte[] data) {
-        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(data);
-        try (ObjectInputStream objectInputStream = new ObjectInputStream((byteArrayInputStream))) {
-            return (Mensagem) objectInputStream.readObject();
-        } catch (IOException | ClassNotFoundException e) {
-            return null;
-        }
-
-    }
-
-    // usado apra deserializar um array de byte[] em um pacote(Mensagem)
-    public static Mensagem byte2msgV2(byte[] data) {
-        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(data);
-        try (ObjectInputStream objectInputStream = new ObjectInputStream((byteArrayInputStream))) {
-            return (Mensagem) objectInputStream.readObject();
-        } catch (IOException | ClassNotFoundException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
-    public static Mensagem byte2msgDecomp(byte[] data) {
-        data = decompress(data);
-
-        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(data);
-        try (ObjectInputStream objectInputStream = new ObjectInputStream((byteArrayInputStream))) {
-            return (Mensagem) objectInputStream.readObject();
-        } catch (IOException | ClassNotFoundException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
     public static byte[] decompress(byte[] data) {
         if (data == null) {
-            throw new IllegalArgumentException("data was null");
+            return null;
         }
 
         Inflater inflater = new Inflater();
@@ -159,18 +98,11 @@ public class Mensagem implements Serializable {
 
             byte[] output = outputStream.toByteArray();
             inflater.end();
-            //System.out.println("Original: " + data.length + " bytes --> " + "Uncompressed: " + output.length + " bytes");
+
             return output;
         } catch (IOException | DataFormatException e) {
-            throw new RuntimeException(e);
+            return null;
         }
-    }
-
-    public static byte[] msg2byteJson(Mensagem msg) {
-        Gson gson = new Gson();
-        String msgJson = gson.toJson(msg);
-        System.out.println(msgJson);
-        return msgJson.getBytes();
     }
 
     public static byte[] msg2byteJsonComp(Mensagem msg) {
@@ -179,17 +111,15 @@ public class Mensagem implements Serializable {
         return compress(msgJson.getBytes());
     }
 
-    public static Mensagem byte2msgJson(byte[] data) {
-        Gson gson = new Gson();
-        String msgJson = new String(data);
-        return gson.fromJson(msgJson, Mensagem.class);
-    }
-
     public static Mensagem byte2msgJsonDecomp(byte[] data) {
         data = decompress(data);
+        if (data == null) {
+            return null;
+        }
 
         Gson gson = new Gson();
         String msgJson = new String(data);
+
         return gson.fromJson(msgJson, Mensagem.class);
     }
 }

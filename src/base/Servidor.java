@@ -9,11 +9,8 @@ public class Servidor {
     static final Map<String, List<String>> peerList = new ConcurrentHashMap<>();
     static final Map<String, List<String>> peerPendingAliveQueue = new ConcurrentHashMap<>();
     public static final int PORT = 10098;
-
     static Timer timer = new Timer(); // Timer utilizado para o time out aguardando o ALIVE_OK
-
     static ThreadAlive threadAlive;
-
     private static DatagramSocket datagramSocket;
 
     public Servidor(DatagramSocket datagramSocket) {
@@ -118,6 +115,7 @@ public class Servidor {
                     peerList.remove(peerNameReceived);
                     msgReply = new Mensagem(msgReceived.getId(), Mensagem.Req.LEAVE_OK, null);
 
+
                     sendMessage(msgReply, datagramSocket, ipReceived, portReceived);
                     break;
                 case SEARCH:
@@ -128,11 +126,26 @@ public class Servidor {
 
                     for (Map.Entry<String, List<String>> peer : peerList.entrySet()) {
                         if (peer.getValue().contains(msgReceived.getMsgList().get(0))) {
+
                             searchPeerList.add(peer.getKey());
                         }
                     }
 
                     msgReply = new Mensagem(msgReceived.getId(), Mensagem.Req.SEARCH, searchPeerList);
+
+                    sendMessage(msgReply, datagramSocket, ipReceived, portReceived);
+                    break;
+                case UPDATE:
+                    ipReceived = datagramPacket.getAddress();
+                    portReceived = datagramPacket.getPort();
+
+                    for (Map.Entry<String, List<String>> peer : peerList.entrySet()) {
+                        if (peer.getKey().equals(ipReceived.getHostAddress() + ":" + portReceived)) {
+                            peer.getValue().add(msgReceived.getMsgList().get(0));
+                        }
+                    }
+
+                    msgReply = new Mensagem(msgReceived.getId(), Mensagem.Req.UPDATE_OK, null);
 
                     sendMessage(msgReply, datagramSocket, ipReceived, portReceived);
                     break;
@@ -171,14 +184,13 @@ public class Servidor {
     }
 
     // usado para o envio dos pacotes(mensagem) atravez do Socket
+    // @mensagem:
     // @datagramSocket: socket inicializado para o envio do pacote
     // @inetAddress: endereço ip para o envio do pacote
     // @port: porta para o envio do pacote
-    // @mode: modo de envio, utilizado apenas para realizar a impressao da mensagem com o modo de envio
     private static void sendMessage(Mensagem mensagem, DatagramSocket datagramSocket, InetAddress inetAddress, int port) {
 
         byte[] sendDataBuffer = Mensagem.msg2byteJsonComp(mensagem);
-        //byte[] sendDataBuffer = Mensagem.msg2byte(mensagem);
 
         DatagramPacket sendDatagramPacket = new DatagramPacket(sendDataBuffer, sendDataBuffer.length, inetAddress, port);
         try {
@@ -193,9 +205,6 @@ public class Servidor {
         DatagramPacket recDatagramPacket = new DatagramPacket(recDataBuffer, recDataBuffer.length);
 
         datagramSocket.receive(recDatagramPacket); // blocking
-
-        //ServerSocket serverSocket = new ServerSocket();
-        //Socket socket = serverSocket.accept();
 
         ThreadHandleRequest threadHandleRequest = new ThreadHandleRequest(datagramSocket, recDatagramPacket);
         threadHandleRequest.start();
@@ -226,12 +235,5 @@ public class Servidor {
                 throw new RuntimeException(e);
             }
         }
-    }
-
-    @Override
-    protected void finalize() throws Throwable {
-        super.finalize();
-        threadAlive.interrupt();
-        timer.cancel();
     }
 }
