@@ -9,19 +9,14 @@ public class Servidor {
     static final Map<String, List<String>> peerList = new ConcurrentHashMap<>();
     static final Map<String, List<String>> peerPendingAliveQueue = new ConcurrentHashMap<>();
     public static final int PORT = 10098;
-    static Timer timer = new Timer(); // Timer utilizado para o time out aguardando o ALIVE_OK
-    static ThreadAlive threadAlive;
-    private static DatagramSocket datagramSocket;
-
-    public Servidor(DatagramSocket datagramSocket) {
-        Servidor.datagramSocket = datagramSocket;
-    }
 
     static class ThreadAlive extends Thread {
         private final DatagramSocket datagramSocket;
+
         public ThreadAlive(DatagramSocket datagramSocket) {
             this.datagramSocket = datagramSocket;
         }
+
         @Override
         public void run() {
             while (true) {
@@ -39,13 +34,12 @@ public class Servidor {
                             sendMessage(mensagem, datagramSocket, inetAddress, port);
                             peerPendingAliveQueue.put(peer.getKey(), peer.getValue());
 
+                            Timer timer = new Timer(); // Timer utilizado para o time out aguardando o ALIVE_OK
+
                             // Timeout - Instancia uma nova TimerTask e agenda ela no Timer passado como parametro. A função run do timer será chamada apos 5 segundos
-                            if (timer != null) {
-                                TimerTask task = new Timeout(peer.getKey());
+                            TimerTask task = new Timeout(peer.getKey());
 
-                                timer.schedule(task, 2000);
-                            }
-
+                            timer.schedule(task, 2000);
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
@@ -72,56 +66,37 @@ public class Servidor {
         }
         @Override
         public void run() {
-            //Mensagem msgReceived = Mensagem.byte2msg(datagramPacket.getData());
             Mensagem msgReceived = Mensagem.byte2msgJsonDecomp(datagramPacket.getData());
             Mensagem msgReply;
-            InetAddress ipReceived;
-            int portReceived;
-            String peerNameReceived;
+            InetAddress ipReceived = datagramPacket.getAddress();
+            int portReceived = datagramPacket.getPort();
+            String peerNameReceived = ipReceived.getHostAddress() + ":" + portReceived;
 
             switch(Objects.requireNonNull(msgReceived).getRequest()) {
                 case JOIN:
-                    ipReceived = datagramPacket.getAddress();
-                    portReceived = datagramPacket.getPort();
-
                     System.out.print("Peer " + ipReceived.getHostAddress() + ":" + portReceived + " adicionado com arquivos ");
                     for (String file : msgReceived.getMsgList()) {
                         System.out.print(file + " ");
                     }
                     System.out.print("\n");
 
-                    peerNameReceived = ipReceived.getHostAddress() + ":" + portReceived;
-
                     peerList.put(peerNameReceived, msgReceived.getMsgList());
 
                     msgReply = new Mensagem(msgReceived.getId(), Mensagem.Req.JOIN_OK, Collections.singletonList(peerNameReceived));
-
                     sendMessage(msgReply, datagramSocket, ipReceived, portReceived);
                     break;
                 case ALIVE_OK:
-                    ipReceived = datagramPacket.getAddress();
-                    portReceived = datagramPacket.getPort();
-
                     peerNameReceived = ipReceived.getHostAddress() + ":" + portReceived;
 
                     peerPendingAliveQueue.remove(peerNameReceived);
                     break;
                 case LEAVE:
-                    ipReceived = datagramPacket.getAddress();
-                    portReceived = datagramPacket.getPort();
-
-                    peerNameReceived = ipReceived.getHostAddress() + ":" + portReceived;
-
                     peerList.remove(peerNameReceived);
+
                     msgReply = new Mensagem(msgReceived.getId(), Mensagem.Req.LEAVE_OK, null);
-
-
                     sendMessage(msgReply, datagramSocket, ipReceived, portReceived);
                     break;
                 case SEARCH:
-                    ipReceived = datagramPacket.getAddress();
-                    portReceived = datagramPacket.getPort();
-
                     List<String> searchPeerList = new ArrayList<>();
 
                     for (Map.Entry<String, List<String>> peer : peerList.entrySet()) {
@@ -132,13 +107,9 @@ public class Servidor {
                     }
 
                     msgReply = new Mensagem(msgReceived.getId(), Mensagem.Req.SEARCH, searchPeerList);
-
                     sendMessage(msgReply, datagramSocket, ipReceived, portReceived);
                     break;
                 case UPDATE:
-                    ipReceived = datagramPacket.getAddress();
-                    portReceived = datagramPacket.getPort();
-
                     for (Map.Entry<String, List<String>> peer : peerList.entrySet()) {
                         if (peer.getKey().equals(ipReceived.getHostAddress() + ":" + portReceived)) {
                             peer.getValue().add(msgReceived.getMsgList().get(0));
@@ -146,7 +117,6 @@ public class Servidor {
                     }
 
                     msgReply = new Mensagem(msgReceived.getId(), Mensagem.Req.UPDATE_OK, null);
-
                     sendMessage(msgReply, datagramSocket, ipReceived, portReceived);
                     break;
             }
@@ -189,7 +159,6 @@ public class Servidor {
     // @inetAddress: endereço ip para o envio do pacote
     // @port: porta para o envio do pacote
     private static void sendMessage(Mensagem mensagem, DatagramSocket datagramSocket, InetAddress inetAddress, int port) {
-
         byte[] sendDataBuffer = Mensagem.msg2byteJsonComp(mensagem);
 
         DatagramPacket sendDatagramPacket = new DatagramPacket(sendDataBuffer, sendDataBuffer.length, inetAddress, port);
@@ -200,7 +169,7 @@ public class Servidor {
         }
     }
 
-    private static void receivePacket(DatagramSocket datagramSocket) throws IOException {
+    private static void requestMonitor(DatagramSocket datagramSocket) throws IOException {
         byte[] recDataBuffer = new byte[1024];
         DatagramPacket recDatagramPacket = new DatagramPacket(recDataBuffer, recDataBuffer.length);
 
@@ -211,26 +180,18 @@ public class Servidor {
     }
 
     public static void main(String[] args) throws UnknownHostException, SocketException {
-        String ip;
         Scanner mmi = new Scanner(System.in);
-        ip = mmi.next();
+        String ip = mmi.next();
 
         InetAddress inetAddressServer = InetAddress.getByName(ip);
-        datagramSocket = new DatagramSocket(PORT, inetAddressServer);
+        DatagramSocket datagramSocket = new DatagramSocket(PORT, inetAddressServer);
 
-        threadAlive = new ThreadAlive(datagramSocket);
+        ThreadAlive threadAlive = new ThreadAlive(datagramSocket);
         threadAlive.start();
-
-
 
         while(true) {
             try {
-                if (datagramSocket.isClosed()) {
-                    System.out.println("Socket Closed");
-                } else {
-                    receivePacket(datagramSocket);
-                }
-
+                requestMonitor(datagramSocket);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }

@@ -3,7 +3,6 @@ package base;
 import com.google.gson.Gson;
 
 import java.io.*;
-import java.util.Arrays;
 import java.util.List;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
@@ -12,11 +11,11 @@ import java.util.zip.Inflater;
 // Classe utilizada como objeto no envio e recebimento de mensagens
 public class Mensagem implements Serializable {
     // header
-    private int id;
+    private final int id;
     private Req req;
 
     // data
-    private final List<String> msgList;
+    private List<String> msgList;
 
     // utilizado como valores do parametro ACK
     enum Req {

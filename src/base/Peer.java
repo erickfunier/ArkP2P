@@ -11,16 +11,11 @@ public class Peer {
 
     private static String peerIp;
     private static int peerPort;
-    private static String path;
+    private static String destPath;
     private static final List<String> fileList = new ArrayList<>(); // lista de arquivos no peer
-
     private static List<String> lastSearchPeerList = new ArrayList<>();
 
     private static final Map<Integer, Mensagem> msgQueue = new ConcurrentHashMap<>(); // lista de mensagens enviadas esperando OK do servidor
-
-    static Timer timer = new Timer(); // Timer utilizado para o time out
-    static ThreadReceive threadReceive;
-    static ThreadDownloadReceiverHandler threadDownloadReceiverHandler;
 
     private static int msgIdCounter = -1;
 
@@ -140,7 +135,7 @@ public class Peer {
                     if (mensagemRec != null && mensagemRec.getClass().equals(Mensagem.class)) {
                         String fileName = mensagemRec.getMsgList().get(0);
 
-                        File file = new File(path + "\\" + fileName);
+                        File file = new File(destPath + "\\" + fileName);
                         if (!file.isFile()) {
                             sendDownloadNegado(buffer);
                         } else {
@@ -150,6 +145,7 @@ public class Peer {
                                 sendDownloadNegado(buffer);
                             } else {
                                 sendFile(this.socketChannel, fileName);
+                                //sendFile2(this.socketChannel, fileName);
                             }
                         }
                     }
@@ -203,6 +199,7 @@ public class Peer {
 
         public void run() {
             if (msgQueue.containsKey(mensagem.getId())) {
+                System.out.println("Reenviando");
                 sendMessage(mensagem, datagramSocket, inetAddress, port);
                 msgQueue.remove(mensagem.getId());
             }
@@ -225,7 +222,7 @@ public class Peer {
                     socketChannel.close();
                     return false;
                 } else {
-                    RandomAccessFile aFile = new RandomAccessFile(path + "\\" + fileName, "rw");
+                    RandomAccessFile aFile = new RandomAccessFile(destPath + "\\" + fileName, "rw");
                     FileChannel fileChannel = aFile.getChannel();
                     buffer.flip();
                     fileChannel.write(buffer);
@@ -237,7 +234,7 @@ public class Peer {
                     }
                     Thread.sleep(1000);
                     fileChannel.close();
-                    System.out.println("Arquivo " + fileName + " baixado com sucesso na pasta " + path);
+                    System.out.println("Arquivo " + fileName + " baixado com sucesso na pasta " + destPath);
                     aFile.close();
                     socketChannel.close();
                     return true;
@@ -250,10 +247,11 @@ public class Peer {
         return false;
     }
 
+
     public static void sendFile(SocketChannel socketChannel, String fileName) {
         RandomAccessFile aFile;
         try {
-            File file = new File(path + "\\" + fileName);
+            File file = new File(destPath + "\\" + fileName);
             aFile = getRandomAccessFile(socketChannel, file);
             socketChannel.close();
             aFile.close();
@@ -262,10 +260,35 @@ public class Peer {
         }
     }
 
+    public static void sendFile2(SocketChannel socketChannel, String fileName) {
+        FileChannel inChannel = null;
+        try {
+            inChannel = new FileInputStream(destPath + "\\" + fileName).getChannel();
+            inChannel.transferTo(0, inChannel.size(), socketChannel);
+            socketChannel.close();
+            inChannel.close();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+
+        /*RandomAccessFile aFile;
+        try {
+            File file = new File(destPath + "\\" + fileName);
+            aFile = getRandomAccessFile(socketChannel, file);
+            socketChannel.close();
+            aFile.close();
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+        }*/
+    }
+
     static RandomAccessFile getRandomAccessFile(SocketChannel socketChannel, File file) throws IOException, InterruptedException {
         RandomAccessFile aFile;
         aFile = new RandomAccessFile(file, "r");
         FileChannel inChannel = aFile.getChannel();
+
+
         ByteBuffer buffer = ByteBuffer.allocate(1024);
         while (inChannel.read(buffer) > 0) {
             buffer.flip();
@@ -292,7 +315,9 @@ public class Peer {
             throw new RuntimeException(e);
         }
 
-        if (timer != null && mensagem.getRequest() != Mensagem.Req.ALIVE_OK) {
+        Timer timer = new Timer();
+
+        if (mensagem.getRequest() != Mensagem.Req.ALIVE_OK) {
             TimerTask task = new Timeout(mensagem, datagramSocket, inetAddress, port);
 
             timer.schedule(task, 2000);
@@ -323,7 +348,7 @@ public class Peer {
                 }
                 System.out.print("\n");
 
-                threadDownloadReceiverHandler = new ThreadDownloadReceiverHandler();
+                ThreadDownloadReceiverHandler threadDownloadReceiverHandler = new ThreadDownloadReceiverHandler();
                 threadDownloadReceiverHandler.start();
                 break;
             case ALIVE:
@@ -379,14 +404,14 @@ public class Peer {
                 case 1: // JOIN
                     serverIp = mmi.next();
                     serverPort = mmi.nextInt();
-                    path = mmi.next();
+                    destPath = mmi.next();
 
                     serverAddress = InetAddress.getByName(serverIp);
 
-                    if (path.contains(" "))
-                        path = "'" + path + "'";
+                    if (destPath.contains(" "))
+                        destPath = "'" + destPath + "'";
 
-                    File folder = new File(path);
+                    File folder = new File(destPath);
 
                     File[] listOfFiles = folder.listFiles();
 
@@ -398,7 +423,7 @@ public class Peer {
                         }
                     }
 
-                    threadReceive = new ThreadReceive(datagramSocket);
+                    ThreadReceive threadReceive = new ThreadReceive(datagramSocket);
                     threadReceive.start();
 
                     mensagem = new Mensagem(msgIdCounter, Mensagem.Req.JOIN, fileList);
