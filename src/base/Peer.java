@@ -6,6 +6,9 @@ import java.nio.ByteBuffer;
 import java.nio.channels.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class Peer {
 
@@ -91,6 +94,7 @@ public class Peer {
                             ip = InetAddress.getByName(this.searchPeerListQueue.get(iterateCount).split(":")[0]);
                             port = Integer.parseInt(this.searchPeerListQueue.get(iterateCount).split(":")[1]);
                             if (iterateCount >= this.searchPeerList.size()) {
+                                Thread.sleep(3000);
                                 iterateCount = 0;
                             } else {
                                 iterateCount++;
@@ -104,7 +108,8 @@ public class Peer {
                         socketChannel.close();
                         break;
                     }
-                } catch (IOException e) {
+
+                } catch (IOException | InterruptedException e) {
                     throw new RuntimeException(e);
                 }
             }
@@ -206,6 +211,8 @@ public class Peer {
         }
     }
 
+
+
     public static boolean readFileFromSocket(SocketChannel socketChannel, String fileName) {
         try {
             ByteBuffer buffer = ByteBuffer.allocate(1024);
@@ -222,8 +229,9 @@ public class Peer {
                     socketChannel.close();
                     return false;
                 } else {
-                    RandomAccessFile aFile = new RandomAccessFile(destPath + "\\" + fileName, "rw");
-                    FileChannel fileChannel = aFile.getChannel();
+                    FileOutputStream fileOutputStream = new FileOutputStream(destPath + "\\" + fileName);
+                    FileChannel fileChannel = fileOutputStream.getChannel();
+
                     buffer.flip();
                     fileChannel.write(buffer);
                     buffer.clear();
@@ -232,16 +240,16 @@ public class Peer {
                         fileChannel.write(buffer);
                         buffer.clear();
                     }
-                    Thread.sleep(1000);
+
                     fileChannel.close();
-                    System.out.println("Arquivo " + fileName + " baixado com sucesso na pasta " + destPath);
-                    aFile.close();
+                    fileOutputStream.close();
                     socketChannel.close();
+                    System.out.println("Arquivo " + fileName + " baixado com sucesso na pasta " + destPath);
                     return true;
                 }
             }
 
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException e) {
             e.printStackTrace();
         }
         return false;
@@ -249,54 +257,23 @@ public class Peer {
 
 
     public static void sendFile(SocketChannel socketChannel, String fileName) {
-        RandomAccessFile aFile;
         try {
-            File file = new File(destPath + "\\" + fileName);
-            aFile = getRandomAccessFile(socketChannel, file);
-            socketChannel.close();
-            aFile.close();
-        } catch (IOException | InterruptedException e) {
-            e.printStackTrace();
-        }
-    }
+            FileInputStream fileInputStream = new FileInputStream(destPath + "\\" + fileName);
+            FileChannel fileChannel = fileInputStream.getChannel();
 
-    public static void sendFile2(SocketChannel socketChannel, String fileName) {
-        FileChannel inChannel = null;
-        try {
-            inChannel = new FileInputStream(destPath + "\\" + fileName).getChannel();
-            inChannel.transferTo(0, inChannel.size(), socketChannel);
+            ByteBuffer buffer = ByteBuffer.allocate(1024);
+            while (fileChannel.read(buffer) > 0) {
+                buffer.flip();
+                socketChannel.write(buffer);
+                buffer.clear();
+            }
+
+            fileChannel.close();
+            fileInputStream.close();
             socketChannel.close();
-            inChannel.close();
         } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-
-
-        /*RandomAccessFile aFile;
-        try {
-            File file = new File(destPath + "\\" + fileName);
-            aFile = getRandomAccessFile(socketChannel, file);
-            socketChannel.close();
-            aFile.close();
-        } catch (IOException | InterruptedException e) {
             e.printStackTrace();
-        }*/
-    }
-
-    static RandomAccessFile getRandomAccessFile(SocketChannel socketChannel, File file) throws IOException, InterruptedException {
-        RandomAccessFile aFile;
-        aFile = new RandomAccessFile(file, "r");
-        FileChannel inChannel = aFile.getChannel();
-
-
-        ByteBuffer buffer = ByteBuffer.allocate(1024);
-        while (inChannel.read(buffer) > 0) {
-            buffer.flip();
-            socketChannel.write(buffer);
-            buffer.clear();
         }
-        Thread.sleep(1000);
-        return aFile;
     }
 
     // usado para o envio dos pacotes(mensagem) atravez do Socket
@@ -360,6 +337,10 @@ public class Peer {
                 sendMessage(mensagemResp, datagramSocket, inetAddress, port);
                 break;
             case LEAVE_OK:
+                lastSearchPeerList.clear();
+                msgQueue.remove(msgReceived.getId());
+
+                break;
             case UPDATE_OK:
                 msgQueue.remove(msgReceived.getId());
 
