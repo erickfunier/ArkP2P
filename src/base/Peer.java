@@ -2,37 +2,30 @@ package base;
 
 import java.io.*;
 import java.net.*;
-import java.nio.ByteBuffer;
-import java.nio.channels.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 public class Peer {
 
-    private static String peerIp;
-    private static int peerPort;
-    private static String destPath;
+    private static String destPath; // caminho da pasta contendo os arquivos
     private static final List<String> fileList = new ArrayList<>(); // lista de arquivos no peer
-    private static List<String> lastSearchPeerList = new ArrayList<>();
-
+    private static List<String> lastSearchPeerList = new ArrayList<>(); // lista com os peers resultantes da ultima busca por um arquivo
     private static final Map<Integer, Mensagem> msgQueue = new ConcurrentHashMap<>(); // lista de mensagens enviadas esperando OK do servidor
+    private static int msgIdCounter = -1; // contador para o ID das mensagens enviadas
 
-    private static int msgIdCounter = -1;
-
-
-    static class ThreadReceive extends Thread {
+    /**
+     * Thread utilizado para monitorar e manipular as requisicoes e, repostas de requisicoes, atraves do UDP
+     */
+    static class ThreadRequestMonitorHandler extends Thread {
         private final DatagramSocket datagramSocket;
-        public ThreadReceive(DatagramSocket datagramSocket) {
+        public ThreadRequestMonitorHandler(DatagramSocket datagramSocket) {
             this.datagramSocket = datagramSocket;
         }
         @Override
         public void run() {
             try {
                 while(true) {
-                    receivePacket(datagramSocket); // blocking
+                    requestHandler(datagramSocket); // blocking
                 }
             } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -45,8 +38,73 @@ public class Peer {
 
             datagramSocket.close();
         }
+
+        /**
+         * utilizado para manipular as requisicoes ou, respostas de requisicoes, UDP
+         * @param datagramSocket DatagramSocket utilizado para comunicacao UDP
+         * @throws IOException
+         */
+        private void requestHandler(DatagramSocket datagramSocket) throws IOException {
+            byte[] recDataBuffer = new byte[1024];
+            DatagramPacket recDatagramPacket = new DatagramPacket(recDataBuffer, recDataBuffer.length);
+
+            datagramSocket.receive(recDatagramPacket);
+
+            Mensagem msgReceived = Mensagem.byte2msgJsonDecomp(recDatagramPacket.getData());
+
+            switch(Objects.requireNonNull(msgReceived).getRequest()) {
+                case JOIN_OK:
+                    msgQueue.remove(msgReceived.getId());
+
+                    // porta do peer
+                    int peerPort = Integer.parseInt(msgReceived.getMsgList().get(0).split(":")[1]);
+
+                    System.out.print("Sou peer " + msgReceived.getMsgList().get(0) + " com arquivos ");
+                    for (String file : fileList) {
+                        System.out.print(file + " ");
+                    }
+                    System.out.print("\n");
+
+                    ThreadDownloadRequestMonitor threadDownloadRequestMonitor = new ThreadDownloadRequestMonitor(peerPort);
+                    threadDownloadRequestMonitor.start();
+                    break;
+                case ALIVE:
+                    InetAddress inetAddress = recDatagramPacket.getAddress();
+                    int port = recDatagramPacket.getPort();
+
+                    Mensagem mensagemResp = new Mensagem(-1, Mensagem.Req.ALIVE_OK, null);
+
+                    sendMsg(mensagemResp, datagramSocket, inetAddress, port);
+                    break;
+                case LEAVE_OK:
+                    lastSearchPeerList.clear();
+                    msgQueue.remove(msgReceived.getId());
+
+                    break;
+                case UPDATE_OK:
+                    msgQueue.remove(msgReceived.getId());
+
+                    break;
+                case SEARCH:
+                    msgQueue.remove(msgReceived.getId());
+
+                    lastSearchPeerList.clear();
+                    lastSearchPeerList = msgReceived.getMsgList();
+
+                    System.out.print("Peers com o arquivo solicitado: ");
+                    for (String peer : lastSearchPeerList) {
+                        System.out.print(peer + " ");
+                    }
+                    System.out.print("\n");
+
+                    break;
+            }
+        }
     }
 
+    /**
+     * Thread utilizado para realizar as requisicoes de DOWNLOAD a outro peer atraves do TCP
+     */
     static class ThreadDownloadRequester extends Thread {
         private InetAddress ip;
         private int port;
@@ -58,6 +116,7 @@ public class Peer {
 
         private final int serverPort;
         private final List<String> searchPeerListQueue = new ArrayList<>();
+
         public ThreadDownloadRequester(List<String> searchPeerList, InetAddress ip, int port, String fileName, DatagramSocket datagramSocket, InetAddress serverAddress, int serverPort) {
             this.ip = ip;
             this.port = port;
@@ -71,17 +130,17 @@ public class Peer {
         public void run() {
             int iterateCount = 0;
             while (true) {
-                try (SocketChannel socketChannel = SocketChannel.open()) {
+                try (Socket socket = new Socket(ip, port)) {
 
-                    SocketAddress socketAddress = new InetSocketAddress(ip, port);
-                    socketChannel.connect(socketAddress);
+                    OutputStream outputStream = socket.getOutputStream();
 
                     Mensagem mensagem = new Mensagem(-1, Mensagem.Req.DOWNLOAD, Collections.singletonList(fileName));
 
-                    ByteBuffer buffer = ByteBuffer.wrap(Mensagem.msg2byteJsonComp(mensagem));
-                    socketChannel.write(buffer);
+                    byte[] buffer = Mensagem.msg2byteJsonComp(mensagem);
+                    outputStream.write(buffer);
+                    outputStream.flush();
 
-                    if (!readFileFromSocket(socketChannel, fileName)) {
+                    if (!receiveFileFromSocket(socket, fileName)) {
                         if (!searchPeerListQueue.contains(this.ip.getHostAddress() + ":" + this.port)) {
                             searchPeerListQueue.add(this.ip.getHostAddress() + ":" + this.port);
                             this.searchPeerList.remove(this.ip.getHostAddress() + ":" + this.port);
@@ -100,12 +159,12 @@ public class Peer {
                                 iterateCount++;
                             }
                         }
-                        System.out.println("peer " + socketChannel.socket().getInetAddress().getHostAddress() + ":"
-                                + socketChannel.socket().getPort() + " negou o download, pedindo agora para o peer "
+                        System.out.println("peer " + socket.getInetAddress().getHostAddress() + ":"
+                                + socket.getPort() + " negou o download, pedindo agora para o peer "
                                 + this.ip.getHostAddress() + ":" + this.port);
-                        socketChannel.close();
+                        socket.close();
                     } else {
-                        socketChannel.close();
+                        socket.close();
                         break;
                     }
 
@@ -115,25 +174,93 @@ public class Peer {
             }
             Mensagem mensagem = new Mensagem(msgIdCounter, Mensagem.Req.UPDATE, Collections.singletonList(fileName));
 
-            sendMessage(mensagem, datagramSocket, serverAddress, serverPort);
+            sendMsg(mensagem, datagramSocket, serverAddress, serverPort);
+        }
+
+        /**
+         * utilizado para receber um arquivo a partir do socket TCP
+         * @param socket socket da conexao com o outro peer
+         * @param fileName nome do arquivo a ser recebido
+         * @return
+         */
+        private boolean receiveFileFromSocket(Socket socket, String fileName) {
+            try {
+                InputStream inputStream = socket.getInputStream();
+                byte[] buffer = new byte[1024];
+
+                int read = inputStream.read(buffer);
+                if (read > 0) {
+                    byte[] data = buffer.clone();
+
+                    Mensagem mensagem = Mensagem.byte2msgJsonDecomp(data);
+
+                    if (mensagem != null && mensagem.getClass().equals(Mensagem.class)) {
+                        socket.close();
+                        return false;
+                    } else {
+                        FileOutputStream fileOutputStream = new FileOutputStream(destPath + "\\" + fileName);
+
+                        fileOutputStream.write(buffer);
+                        while (inputStream.read(buffer) > 0) {
+                            fileOutputStream.write(buffer);
+                        }
+
+                        fileOutputStream.close();
+                        socket.close();
+                        System.out.println("Arquivo " + fileName + " baixado com sucesso na pasta " + destPath);
+                        return true;
+                    }
+                }
+
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return false;
         }
     }
 
-    static class ThreadDownloadReceiver extends Thread {
-        private final SocketChannel socketChannel;
-        public ThreadDownloadReceiver(SocketChannel socketChannel) {
-            this.socketChannel = socketChannel;
+    /**
+     * Thread utilizado para monitorar as requisicoes de DOWNLOAD de outro peer atraves do TCP
+     */
+    static class ThreadDownloadRequestMonitor extends Thread {
+        int peerPort;
+
+        public ThreadDownloadRequestMonitor(int peerPort) {
+            this.peerPort = peerPort;
         }
         @Override
         public void run() {
+            try (ServerSocket serverSocket = new ServerSocket(this.peerPort)) {
+                while (true) {
+                    ThreadDownloadResponse threadDownloadResponse = new ThreadDownloadResponse(serverSocket.accept());
+                    threadDownloadResponse.start();
+                }
+            } catch (IOException ignored) {
+                // O socket sera fechado quando a thread for finalizada no comando LEAVE, gerando essa excecao
+            }
+        }
+    }
+
+    /**
+     * Thread utilizado para responder a requisicao de DOWNLOAD atraves do TCP
+     */
+    static class ThreadDownloadResponse extends Thread {
+        private final Socket socket;
+
+        public ThreadDownloadResponse(Socket socket) {
+            this.socket = socket;
+        }
+
+        @Override
+        public void run() {
             try {
-                ByteBuffer buffer = ByteBuffer.allocate(1024);
-                int read = this.socketChannel.read(buffer);
+                byte[] buffer = new byte[1024];
+                InputStream inputStream = this.socket.getInputStream();
+
+                int read = inputStream.read(buffer);
 
                 if (read > 0) {
-                    byte[] data = new byte[read];
-                    buffer.position(0);
-                    buffer.get(data);
+                    byte[] data = buffer.clone();
 
                     Mensagem mensagemRec = Mensagem.byte2msgJsonDecomp(data);
 
@@ -142,15 +269,14 @@ public class Peer {
 
                         File file = new File(destPath + "\\" + fileName);
                         if (!file.isFile()) {
-                            sendDownloadNegado(buffer);
+                            sendDownloadNegado();
                         } else {
-                            Random rd = new Random(); // creating Random object
+                            Random rd = new Random();
 
                             if (rd.nextBoolean()) {
-                                sendDownloadNegado(buffer);
+                                sendDownloadNegado();
                             } else {
-                                sendFile(this.socketChannel, fileName);
-                                //sendFile2(this.socketChannel, fileName);
+                                sendFileToSocket(this.socket, fileName);
                             }
                         }
                     }
@@ -160,35 +286,48 @@ public class Peer {
             }
         }
 
-        private void sendDownloadNegado(ByteBuffer buffer) throws IOException {
-            Mensagem mensagem = new Mensagem(-1, Mensagem.Req.DOWNLOAD_NEGADO, null);
+        /**
+         * utilizado para enviar um arquivo atraves do socket TCP
+         * @param socket socket da conexao com o outro peer
+         * @param fileName nome do arquivo a ser enviado
+         */
+        private void sendFileToSocket(Socket socket, String fileName) {
+            try {
+                FileInputStream fileInputStream = new FileInputStream(destPath + "\\" + fileName);
+                OutputStream outputStream = socket.getOutputStream();
 
-            buffer.clear();
-            buffer = ByteBuffer.wrap(Mensagem.msg2byteJsonComp(mensagem));
-            this.socketChannel.write(buffer);
-
-            this.socketChannel.socket().close();
-        }
-    }
-
-    static class ThreadDownloadReceiverHandler extends Thread {
-        public ThreadDownloadReceiverHandler() {
-        }
-        @Override
-        public void run() {
-            try (ServerSocketChannel serverSocketChannel = ServerSocketChannel.open()) {
-                serverSocketChannel.socket().bind(new InetSocketAddress(peerIp, peerPort));
-
-                while (true) {
-                    ThreadDownloadReceiver threadDownloadReceiver = new ThreadDownloadReceiver(serverSocketChannel.accept());
-                    threadDownloadReceiver.start();
+                byte[] buffer = new byte[1024];
+                while (fileInputStream.read(buffer) > 0) {
+                    outputStream.write(buffer);
                 }
-            } catch (IOException ignored) {
-                // O socket sera fechado quando a thread for finalizada no comando LEAVE, gerando essa excecao
+
+                fileInputStream.close();
+                socket.close();
+            } catch (IOException e) {
+                e.printStackTrace();
             }
         }
+
+        /**
+         * utilizado para enviar uma resposta (mensagem) de DOWNLOAD_NEGADO
+         * @throws IOException
+         */
+        private void sendDownloadNegado() throws IOException {
+            Mensagem mensagem = new Mensagem(-1, Mensagem.Req.DOWNLOAD_NEGADO, null);
+
+            byte[] buffer = Mensagem.msg2byteJsonComp(mensagem);
+
+            OutputStream outputStream = socket.getOutputStream();
+
+            outputStream.write(buffer);
+
+            this.socket.close();
+        }
     }
 
+    /**
+     * TimeTask utilizado para reenviar as mensagens que nao receberam a resposta OK do servidor atraves do UDP
+     */
     static class Timeout extends TimerTask {
         private final DatagramSocket datagramSocket;
         private final InetAddress inetAddress;
@@ -204,86 +343,21 @@ public class Peer {
 
         public void run() {
             if (msgQueue.containsKey(mensagem.getId())) {
-                System.out.println("Reenviando");
-                sendMessage(mensagem, datagramSocket, inetAddress, port);
+                sendMsg(mensagem, datagramSocket, inetAddress, port);
                 msgQueue.remove(mensagem.getId());
             }
         }
     }
 
-
-
-    public static boolean readFileFromSocket(SocketChannel socketChannel, String fileName) {
-        try {
-            ByteBuffer buffer = ByteBuffer.allocate(1024);
-
-            int read = socketChannel.read(buffer);
-            if (read > 0) {
-                byte[] data = new byte[read];
-                buffer.position(0);
-                buffer.get(data);
-
-                Mensagem mensagem = Mensagem.byte2msgJsonDecomp(data);
-
-                if (mensagem != null && mensagem.getClass().equals(Mensagem.class)) {
-                    socketChannel.close();
-                    return false;
-                } else {
-                    FileOutputStream fileOutputStream = new FileOutputStream(destPath + "\\" + fileName);
-                    FileChannel fileChannel = fileOutputStream.getChannel();
-
-                    buffer.flip();
-                    fileChannel.write(buffer);
-                    buffer.clear();
-                    while (socketChannel.read(buffer) > 0) {
-                        buffer.flip();
-                        fileChannel.write(buffer);
-                        buffer.clear();
-                    }
-
-                    fileChannel.close();
-                    fileOutputStream.close();
-                    socketChannel.close();
-                    System.out.println("Arquivo " + fileName + " baixado com sucesso na pasta " + destPath);
-                    return true;
-                }
-            }
-
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return false;
-    }
-
-
-    public static void sendFile(SocketChannel socketChannel, String fileName) {
-        try {
-            FileInputStream fileInputStream = new FileInputStream(destPath + "\\" + fileName);
-            FileChannel fileChannel = fileInputStream.getChannel();
-
-            ByteBuffer buffer = ByteBuffer.allocate(1024);
-            while (fileChannel.read(buffer) > 0) {
-                buffer.flip();
-                socketChannel.write(buffer);
-                buffer.clear();
-            }
-
-            fileChannel.close();
-            fileInputStream.close();
-            socketChannel.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    // usado para o envio dos pacotes(mensagem) atravez do Socket
-    // @timer: instância do timer para agendar um timeout
-    // @datagramSocket: socket inicializado para o envio do pacote
-    // @inetAddress: endereço ip para o envio do pacote
-    // @index: index do pacote(Mensagem) no buffer para ser enviado
-    // @mode: modo de envio, utilizado apenas para realizar a impressao da mensagem com o modo de envio
-    private static void sendMessage(Mensagem mensagem, DatagramSocket datagramSocket, InetAddress inetAddress, int port) {
-        byte[] sendData = Mensagem.msg2byteJsonComp(mensagem); // obtem o array bytes a partir da mensagem
+    /**
+     * utilizado para o envio dos pacotes(mensagem) atraves do Socket UDP
+     * @param msg mensagem a ser enviada
+     * @param datagramSocket socket inicializado para o envio do pacote
+     * @param inetAddress endereço ip para o envio do pacote
+     * @param port porta para o envio do pacote
+     */
+    private static void sendMsg(Mensagem msg, DatagramSocket datagramSocket, InetAddress inetAddress, int port) {
+        byte[] sendData = Mensagem.msg2byteJsonComp(msg); // obtem o array bytes a partir da mensagem
 
         DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, inetAddress, port);
         try {
@@ -294,70 +368,11 @@ public class Peer {
 
         Timer timer = new Timer();
 
-        if (mensagem.getRequest() != Mensagem.Req.ALIVE_OK) {
-            TimerTask task = new Timeout(mensagem, datagramSocket, inetAddress, port);
+        if (msg.getRequest() != Mensagem.Req.ALIVE_OK) {
+            TimerTask task = new Timeout(msg, datagramSocket, inetAddress, port);
 
             timer.schedule(task, 2000);
-            msgQueue.put(mensagem.getId(), mensagem);
-        }
-    }
-
-    // Utilizada para receber os pacotes dos peers e do server
-    private static void receivePacket(DatagramSocket datagramSocket) throws IOException {
-        byte[] recDataBuffer = new byte[1024];
-        DatagramPacket recDatagramPacket = new DatagramPacket(recDataBuffer, recDataBuffer.length);
-
-        datagramSocket.receive(recDatagramPacket);
-
-        //Mensagem msgReceived = Mensagem.byte2msg(recDatagramPacket.getData());
-        Mensagem msgReceived = Mensagem.byte2msgJsonDecomp(recDatagramPacket.getData());
-
-        switch(Objects.requireNonNull(msgReceived).getRequest()) {
-            case JOIN_OK:
-                msgQueue.remove(msgReceived.getId());
-
-                peerIp = msgReceived.getMsgList().get(0).split(":")[0];
-                peerPort = Integer.parseInt(msgReceived.getMsgList().get(0).split(":")[1]);
-
-                System.out.print("Sou peer " + msgReceived.getMsgList().get(0) + " com arquivos ");
-                for (String file : fileList) {
-                    System.out.print(file + " ");
-                }
-                System.out.print("\n");
-
-                ThreadDownloadReceiverHandler threadDownloadReceiverHandler = new ThreadDownloadReceiverHandler();
-                threadDownloadReceiverHandler.start();
-                break;
-            case ALIVE:
-                InetAddress inetAddress = recDatagramPacket.getAddress();
-                int port = recDatagramPacket.getPort();
-
-                Mensagem mensagemResp = new Mensagem(-1, Mensagem.Req.ALIVE_OK, null);
-
-                sendMessage(mensagemResp, datagramSocket, inetAddress, port);
-                break;
-            case LEAVE_OK:
-                lastSearchPeerList.clear();
-                msgQueue.remove(msgReceived.getId());
-
-                break;
-            case UPDATE_OK:
-                msgQueue.remove(msgReceived.getId());
-
-                break;
-            case SEARCH:
-                msgQueue.remove(msgReceived.getId());
-
-                lastSearchPeerList.clear();
-                lastSearchPeerList = msgReceived.getMsgList();
-
-                System.out.print("Peers com o arquivo solicitado: ");
-                for (String peer : lastSearchPeerList) {
-                    System.out.print(peer + " ");
-                }
-                System.out.print("\n");
-
-                break;
+            msgQueue.put(msg.getId(), msg);
         }
     }
 
@@ -404,12 +419,12 @@ public class Peer {
                         }
                     }
 
-                    ThreadReceive threadReceive = new ThreadReceive(datagramSocket);
-                    threadReceive.start();
+                    ThreadRequestMonitorHandler threadRequestMonitorHandler = new ThreadRequestMonitorHandler(datagramSocket);
+                    threadRequestMonitorHandler.start();
 
                     mensagem = new Mensagem(msgIdCounter, Mensagem.Req.JOIN, fileList);
 
-                    sendMessage(mensagem, datagramSocket, serverAddress, serverPort);
+                    sendMsg(mensagem, datagramSocket, serverAddress, serverPort);
 
                     break;
                 case 2: // SEARCH
@@ -417,7 +432,7 @@ public class Peer {
 
                     mensagem = new Mensagem(msgIdCounter, Mensagem.Req.SEARCH, Collections.singletonList(searchFile));
 
-                    sendMessage(mensagem, datagramSocket, serverAddress, serverPort);
+                    sendMsg(mensagem, datagramSocket, serverAddress, serverPort);
                     break;
                 case 3: // DOWNLOAD
                     String ipString = mmi.next();
@@ -429,12 +444,11 @@ public class Peer {
                     ThreadDownloadRequester threadDownloadRequester = new ThreadDownloadRequester(lastSearchPeerList, ip, port, filename, datagramSocket, serverAddress, serverPort);
                     threadDownloadRequester.start();
 
-
                     break;
                 case 4: // LEAVE
                     mensagem = new Mensagem(msgIdCounter, Mensagem.Req.LEAVE, null);
 
-                    sendMessage(mensagem, datagramSocket, serverAddress, serverPort);
+                    sendMsg(mensagem, datagramSocket, serverAddress, serverPort);
 
                     break;
             }

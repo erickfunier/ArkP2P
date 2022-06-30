@@ -6,18 +6,19 @@ import java.io.*;
 import java.util.List;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
+import java.util.zip.DeflaterOutputStream;
 import java.util.zip.Inflater;
 
 // Classe utilizada como objeto no envio e recebimento de mensagens
 public class Mensagem implements Serializable {
     // header
     private final int id;
-    private Req req;
+    private final Req req;
 
     // data
-    private List<String> msgList;
+    private final List<String> msgList;
 
-    // utilizado como valores do parametro ACK
+    // utilizado como valores do parametro REQUEST
     enum Req {
         JOIN,
         SEARCH,
@@ -50,35 +51,45 @@ public class Mensagem implements Serializable {
         return msgList;
     }
 
-    public static byte[] compress(byte[] data) {
+
+    // funcoes utilitarias
+
+    /**
+     * utilizado para comprimir um array de bytes
+     * @param data array de bytes a ser comprimido
+     * @return
+     */
+    private static byte[] compress(byte[] data) {
         if (data == null) {
             return null;
         }
 
         Deflater deflater = new Deflater();
         deflater.setInput(data);
+
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length)) {
             deflater.finish();
             byte[] buffer = new byte[1024];
-            // limit while loop to max 10000 runs - to avoid infinite loops
-            int maxRun = 0;
-            while (!deflater.finished() && maxRun < 10000) { int count = deflater.deflate(buffer); outputStream.write(buffer, 0, count); maxRun++; if (maxRun >= 9998) {
-                System.out.println("max run reached - stopping to avoid infinite looping");
-                break;
-            }
+
+            while (!deflater.finished()) {
+                outputStream.write(buffer, 0, deflater.deflate(buffer));
             }
 
-            byte[] output = outputStream.toByteArray();
+            byte[] dataOutput = outputStream.toByteArray();
             deflater.end();
 
-            //System.out.println("Original: " + data.length + " bytes, -->  Compressed: " + output.length + " bytes");
-            return output;
+            return dataOutput;
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
 
-    public static byte[] decompress(byte[] data) {
+    /**
+     * utilizado para dedcomprimir
+     * @param data array de bytes a ser descomprimido
+     * @return
+     */
+    private static byte[] decompress(byte[] data) {
         if (data == null) {
             return null;
         }
@@ -87,29 +98,37 @@ public class Mensagem implements Serializable {
         inflater.setInput(data);
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length)) {
             byte[] buffer = new byte[1024];
-            // limit while loop to max 10000 runs - to avoid infinite loops
-            int maxRun = 0;
-            while (!inflater.finished() && maxRun < Integer.MAX_VALUE) { int count = inflater.inflate(buffer); outputStream.write(buffer, 0, count); maxRun++; if (maxRun >= Integer.MAX_VALUE - 1) {
-                System.out.println("max run reached - stopping to avoid infinite looping");
-                break;
-            }
+            while (!inflater.finished()) {
+                outputStream.write(buffer, 0, inflater.inflate(buffer));
             }
 
-            byte[] output = outputStream.toByteArray();
+            byte[] dataOutput = outputStream.toByteArray();
             inflater.end();
 
-            return output;
+            return dataOutput;
         } catch (IOException | DataFormatException e) {
             return null;
         }
     }
 
+    /**
+     * usado para obter um array de bytes proveniente de um objeto Mensagem,
+     * o convertendo para json e comprimindo (Mensagem->json->bytes comprimidos)
+     * @param msg objeto Mensagem a ser convertido em um array de bytes
+     * @return
+     */
     public static byte[] msg2byteJsonComp(Mensagem msg) {
         Gson gson = new Gson();
         String msgJson = gson.toJson(msg);
         return compress(msgJson.getBytes());
     }
 
+    /**
+     * usado para obter um objeto Mensagem a partir de um array de bytes,
+     * o descomprimindo e convertendo para json (bytes comprimidos->json->Mensagem)
+     * @param data array de bytes a ser convertido em um objeto Mensagem
+     * @return
+     */
     public static Mensagem byte2msgJsonDecomp(byte[] data) {
         data = decompress(data);
         if (data == null) {
