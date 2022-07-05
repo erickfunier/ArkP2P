@@ -57,7 +57,6 @@ public class Mensagem implements Serializable {
     /**
      * utilizado para comprimir um array de bytes
      * @param data array de bytes a ser comprimido
-     * @return
      */
     private static byte[] compress(byte[] data) {
         if (data == null) {
@@ -87,7 +86,6 @@ public class Mensagem implements Serializable {
     /**
      * utilizado para dedcomprimir
      * @param data array de bytes a ser descomprimido
-     * @return
      */
     private static byte[] decompress(byte[] data) {
         if (data == null) {
@@ -115,7 +113,6 @@ public class Mensagem implements Serializable {
      * usado para obter um array de bytes proveniente de um objeto Mensagem,
      * o convertendo para json e comprimindo (Mensagem->json->bytes comprimidos)
      * @param msg objeto Mensagem a ser convertido em um array de bytes
-     * @return
      */
     public static byte[] msg2byteJsonComp(Mensagem msg) {
         Gson gson = new Gson();
@@ -127,7 +124,6 @@ public class Mensagem implements Serializable {
      * usado para obter um objeto Mensagem a partir de um array de bytes,
      * o descomprimindo e convertendo para json (bytes comprimidos->json->Mensagem)
      * @param data array de bytes a ser convertido em um objeto Mensagem
-     * @return
      */
     public static Mensagem byte2msgJsonDecomp(byte[] data) {
         data = decompress(data);

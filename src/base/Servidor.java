@@ -108,16 +108,17 @@ public class Servidor {
 
             switch(Objects.requireNonNull(receivedMsg).getRequest()) {
                 case JOIN:
-                    System.out.print("Peer " + receivedIp.getHostAddress() + ":" + receivedPort + " adicionado com arquivos ");
-                    for (String file : receivedMsg.getMsgList()) {
-                        System.out.print(file + " ");
+                    if (!peerList.containsKey(receivedPeerName)) {
+                        peerList.put(receivedPeerName, receivedMsg.getMsgList());
+                        System.out.print("Peer " + receivedIp.getHostAddress() + ":" + receivedPort + " adicionado com arquivos ");
+                        for (String file : receivedMsg.getMsgList()) {
+                            System.out.print(file + " ");
+                        }
+                        System.out.print("\n");
+
+                        replyMsg = new Mensagem(receivedMsg.getId(), Mensagem.Req.JOIN_OK, Collections.singletonList(receivedPeerName));
+                        sendMsg(replyMsg, datagramSocket, receivedIp, receivedPort);
                     }
-                    System.out.print("\n");
-
-                    peerList.put(receivedPeerName, receivedMsg.getMsgList());
-
-                    replyMsg = new Mensagem(receivedMsg.getId(), Mensagem.Req.JOIN_OK, Collections.singletonList(receivedPeerName));
-                    sendMsg(replyMsg, datagramSocket, receivedIp, receivedPort);
 
                     break;
                 case ALIVE_OK:
@@ -125,17 +126,21 @@ public class Servidor {
 
                     break;
                 case LEAVE:
-                    peerList.remove(receivedPeerName);
+                    if (peerList.containsKey(receivedPeerName)) {
+                        peerList.remove(receivedPeerName);
 
-                    replyMsg = new Mensagem(receivedMsg.getId(), Mensagem.Req.LEAVE_OK, null);
-                    sendMsg(replyMsg, datagramSocket, receivedIp, receivedPort);
+                        replyMsg = new Mensagem(receivedMsg.getId(), Mensagem.Req.LEAVE_OK, null);
+                        sendMsg(replyMsg, datagramSocket, receivedIp, receivedPort);
+                    }
 
                     break;
                 case SEARCH:
+                    String fileName = receivedMsg.getMsgList().get(0);
                     List<String> searchPeerList = new ArrayList<>();
+                    System.out.println("Peer " + receivedIp.getHostAddress() + ":" + receivedPort + " solicitou arquivo " + fileName);
 
                     for (Map.Entry<String, List<String>> peer : peerList.entrySet()) {
-                        if (peer.getValue().contains(receivedMsg.getMsgList().get(0))) {
+                        if (peer.getValue().contains(fileName)) {
                             searchPeerList.add(peer.getKey());
                         }
                     }
@@ -145,9 +150,12 @@ public class Servidor {
 
                     break;
                 case UPDATE:
+                    String newFileName = receivedMsg.getMsgList().get(0);
+
                     for (Map.Entry<String, List<String>> peer : peerList.entrySet()) {
                         if (peer.getKey().equals(receivedIp.getHostAddress() + ":" + receivedPort)) {
-                            peer.getValue().add(receivedMsg.getMsgList().get(0));
+                            if (!peer.getValue().contains(newFileName))
+                                peer.getValue().add(newFileName);
                         }
                     }
 
@@ -191,8 +199,8 @@ public class Servidor {
     /**
      * utilizado para monitorar a chegada de algum pacote no datagramSocket,
      * ao receber o pacote uma thread para trata-lo de acordo eh acionada
-     * @param datagramSocket
-     * @throws IOException
+     * @param datagramSocket socket inicializado para monitorar os pacotes
+     * @throws IOException excecao do recebimento do datagrama
      */
     private static void requestMonitor(DatagramSocket datagramSocket) throws IOException {
         byte[] recDataBuffer = new byte[1024];

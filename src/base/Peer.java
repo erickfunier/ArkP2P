@@ -10,11 +10,12 @@ public class Peer {
     private static String destPath; // caminho da pasta contendo os arquivos
     private static final List<String> fileList = new ArrayList<>(); // lista de arquivos no peer
     private static List<String> lastSearchPeerList = new ArrayList<>(); // lista com os peers resultantes da ultima busca por um arquivo
-    private static final Map<Integer, Mensagem> msgQueue = new ConcurrentHashMap<>(); // lista de mensagens enviadas esperando OK do servidor
+    private static String lastSearchFileName;
+    private static final Map<Integer, Mensagem> msgQueue = new ConcurrentHashMap<>(); // lista de mensagens enviadas esperando OK
     private static int msgIdCounter = -1; // contador para o ID das mensagens enviadas
 
     /**
-     * Thread utilizado para monitorar e manipular as requisicoes e, repostas de requisicoes, atraves do UDP
+     * Thread utilizado para monitorar e manipular as requisicoes e, respostas de requisicoes, atraves do UDP
      */
     static class ThreadRequestMonitorHandler extends Thread {
         private final DatagramSocket datagramSocket;
@@ -91,7 +92,7 @@ public class Peer {
                     lastSearchPeerList.clear();
                     lastSearchPeerList = msgReceived.getMsgList();
 
-                    System.out.print("Peers com o arquivo solicitado: ");
+                    System.out.print("peers com o arquivo solicitado: ");
                     for (String peer : lastSearchPeerList) {
                         System.out.print(peer + " ");
                     }
@@ -115,13 +116,12 @@ public class Peer {
         private final InetAddress serverAddress;
 
         private final int serverPort;
-        private final List<String> searchPeerListQueue = new ArrayList<>();
 
         public ThreadDownloadRequester(List<String> searchPeerList, InetAddress ip, int port, String fileName, DatagramSocket datagramSocket, InetAddress serverAddress, int serverPort) {
             this.ip = ip;
             this.port = port;
             this.fileName = fileName;
-            this.searchPeerList = searchPeerList;
+            this.searchPeerList = new ArrayList<>(searchPeerList);
             this.datagramSocket = datagramSocket;
             this.serverAddress = serverAddress;
             this.serverPort = serverPort;
@@ -129,7 +129,7 @@ public class Peer {
         @Override
         public void run() {
             int iterateCount = 0;
-            while (true) {
+            while (!this.searchPeerList.isEmpty()) {
                 try (Socket socket = new Socket(ip, port)) {
 
                     OutputStream outputStream = socket.getOutputStream();
@@ -141,24 +141,17 @@ public class Peer {
                     outputStream.flush();
 
                     if (!receiveFileFromSocket(socket, fileName)) {
-                        if (!searchPeerListQueue.contains(this.ip.getHostAddress() + ":" + this.port)) {
-                            searchPeerListQueue.add(this.ip.getHostAddress() + ":" + this.port);
+                        if (this.searchPeerList.size() > 1) {
                             this.searchPeerList.remove(this.ip.getHostAddress() + ":" + this.port);
-                        }
-
-                        if (!this.searchPeerList.isEmpty()) {
                             ip = InetAddress.getByName(this.searchPeerList.get(0).split(":")[0]);
                             port = Integer.parseInt(this.searchPeerList.get(0).split(":")[1]);
                         } else {
-                            ip = InetAddress.getByName(this.searchPeerListQueue.get(iterateCount).split(":")[0]);
-                            port = Integer.parseInt(this.searchPeerListQueue.get(iterateCount).split(":")[1]);
-                            if (iterateCount >= this.searchPeerList.size()) {
+                            if (iterateCount == 0) {
+                                this.searchPeerList.remove(this.ip.getHostAddress() + ":" + this.port);
                                 Thread.sleep(3000);
-                                iterateCount = 0;
-                            } else {
-                                iterateCount++;
                             }
                         }
+
                         System.out.println("peer " + socket.getInetAddress().getHostAddress() + ":"
                                 + socket.getPort() + " negou o download, pedindo agora para o peer "
                                 + this.ip.getHostAddress() + ":" + this.port);
@@ -171,6 +164,7 @@ public class Peer {
                 } catch (IOException | InterruptedException e) {
                     throw new RuntimeException(e);
                 }
+                iterateCount++;
             }
             Mensagem mensagem = new Mensagem(msgIdCounter, Mensagem.Req.UPDATE, Collections.singletonList(fileName));
 
@@ -194,7 +188,7 @@ public class Peer {
 
                     Mensagem mensagem = Mensagem.byte2msgJsonDecomp(data);
 
-                    if (mensagem != null && mensagem.getClass().equals(Mensagem.class)) {
+                    if (mensagem != null && mensagem.getClass().equals(Mensagem.class) && mensagem.getRequest().equals(Mensagem.Req.DOWNLOAD_NEGADO)) {
                         socket.close();
                         return false;
                     } else {
@@ -379,7 +373,12 @@ public class Peer {
     public static void main(String[] args) throws IOException {
         Scanner mmi = new Scanner(System.in); // interface homem maquina
 
-        DatagramSocket datagramSocket = new DatagramSocket();
+        InetAddress peerIp = InetAddress.getByName(mmi.nextLine());
+        int peerPort = mmi.nextInt();
+        mmi.next();
+        destPath = mmi.nextLine();
+
+        DatagramSocket datagramSocket = new DatagramSocket(peerPort, peerIp);
 
         String serverIp;
         int serverPort = 0;
@@ -428,25 +427,26 @@ public class Peer {
 
                     break;
                 case 2: // SEARCH
-                    String searchFile = mmi.next();
+                    lastSearchFileName = mmi.next();
 
-                    mensagem = new Mensagem(msgIdCounter, Mensagem.Req.SEARCH, Collections.singletonList(searchFile));
+                    mensagem = new Mensagem(msgIdCounter, Mensagem.Req.SEARCH, Collections.singletonList(lastSearchFileName));
 
                     sendMsg(mensagem, datagramSocket, serverAddress, serverPort);
                     break;
                 case 3: // DOWNLOAD
                     String ipString = mmi.next();
                     int port = mmi.nextInt();
-                    String filename = mmi.next();
 
                     InetAddress ip = InetAddress.getByName(ipString);
 
-                    ThreadDownloadRequester threadDownloadRequester = new ThreadDownloadRequester(lastSearchPeerList, ip, port, filename, datagramSocket, serverAddress, serverPort);
+                    ThreadDownloadRequester threadDownloadRequester = new ThreadDownloadRequester(lastSearchPeerList, ip, port, lastSearchFileName, datagramSocket, serverAddress, serverPort);
                     threadDownloadRequester.start();
 
                     break;
                 case 4: // LEAVE
                     mensagem = new Mensagem(msgIdCounter, Mensagem.Req.LEAVE, null);
+                    lastSearchFileName = "";
+                    lastSearchPeerList.clear();
 
                     sendMsg(mensagem, datagramSocket, serverAddress, serverPort);
 
