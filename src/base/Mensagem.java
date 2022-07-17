@@ -6,7 +6,6 @@ import java.io.*;
 import java.util.List;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
-import java.util.zip.DeflaterOutputStream;
 import java.util.zip.Inflater;
 
 // Classe utilizada como objeto no envio e recebimento de mensagens
