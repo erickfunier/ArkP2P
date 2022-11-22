@@ -1,0 +1,1 @@
+Sistema P2P para transferência de arquivos gigantes entre os peers. A rede é composta por um Servidor centralizado que mantém os Peers que estão ativos na rede e disponibiliza a fonte (peer) de cada arquivo de acordo com a requisição de busca, o projeto foi feito em Java 1.8 e utiliza o TCP e o UDP como protocolos da camada de transporte.
